@@ -2,7 +2,7 @@
 
 DeployLens should be built as one narrow, contract-first vertical slice rather than a general observability platform. A one-day build is realistic only while the project remains a seeded, private demo with one metric, one incident, and no authentication or conversation-history system.
 
-The architecture proposed in the README remains viable. As of July 20, 2026, Trigger.dev `chat.agent()` is generally available. Pin Trigger.dev to `4.5.4`, which includes a relevant chat message-loss fix.
+The architecture proposed in the README remains viable. As of July 20, 2026, Trigger.dev `chat.agent()` is generally available. Version `4.5.4` includes a relevant chat message-loss fix, but its current transitive dependency graph has audited high-severity advisories. Layer 5 must select a compatible patched release that retains that fix.
 
 ```text
 Question
@@ -64,7 +64,7 @@ Use:
 - Next.js App Router with strict TypeScript.
 - Server Components for the page shell.
 - One client workspace owning chat and filter state.
-- Zod, the official ClickHouse client, and the required Trigger.dev and AI SDK packages.
+- Zod and the official ClickHouse client. Add the required Trigger.dev and AI SDK packages in Layer 5, when the orchestration code imports them.
 - Native CSS, SVG, React state, and `Intl.DateTimeFormat`.
 
 Do not add Tailwind, a component kit, chart library, Redux or Zustand, React Query, a date library, or an animation library.
