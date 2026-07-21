@@ -1,0 +1,305 @@
+.evidence-section {
+  padding: 2.5rem 0;
+}
+
+.evidence-section + .evidence-section {
+  border-top: 1px solid var(--border);
+}
+
+.section-heading {
+  align-items: baseline;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+}
+
+.section-heading h3 {
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.section-heading p,
+.timeline-figure figcaption {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  margin: 0;
+  text-align: right;
+}
+
+.timeline-figure {
+  margin: 0;
+}
+
+.chart-scroll,
+.data-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.chart-scroll svg {
+  display: block;
+  min-width: 42rem;
+  width: 100%;
+}
+
+.timeline-lane text,
+.timeline-time {
+  fill: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 650;
+}
+
+.timeline-lane line {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.timeline-lane polyline {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.lane-conversionRate polyline {
+  stroke: var(--recovery);
+}
+
+.lane-errorRate polyline {
+  stroke: var(--incident);
+}
+
+.lane-p95LatencyMs polyline {
+  stroke: var(--ink);
+}
+
+.timeline-marker {
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.timeline-marker.marker-deployment {
+  stroke: var(--deployment);
+  stroke-dasharray: 5 3;
+}
+
+.timeline-marker.marker-incident_start {
+  stroke: var(--incident);
+  stroke-width: 2;
+}
+
+.timeline-marker.marker-rollback {
+  stroke: var(--recovery);
+  stroke-dasharray: 2 3;
+}
+
+.timeline-time-end {
+  text-anchor: end;
+}
+
+.timeline-figure figcaption {
+  margin-top: 0.5rem;
+  text-align: left;
+}
+
+.marker-key {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  list-style: none;
+  margin: 1.25rem 0;
+  padding: 0;
+}
+
+.marker-key li {
+  align-items: center;
+  display: grid;
+  font-size: 0.75rem;
+  gap: 0.2rem 0.5rem;
+  grid-template-columns: 0.85rem 1fr;
+}
+
+.marker-key time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  grid-column: 2;
+}
+
+.marker-swatch {
+  background: var(--deployment);
+  height: 0.65rem;
+  width: 0.65rem;
+}
+
+.marker-swatch.marker-incident_start {
+  background: var(--incident);
+  border-radius: 50%;
+}
+
+.marker-swatch.marker-rollback {
+  background: var(--recovery);
+  transform: rotate(45deg);
+}
+
+.data-details {
+  border-top: 1px solid var(--border);
+  margin-top: 1.25rem;
+}
+
+.data-details summary {
+  color: var(--primary);
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 700;
+  min-height: 2.75rem;
+  padding: 0.9rem 0;
+  width: fit-content;
+}
+
+.data-scroll table {
+  border-collapse: collapse;
+  font-size: 0.78rem;
+  width: 100%;
+}
+
+.data-scroll th,
+.data-scroll td {
+  border-bottom: 1px solid var(--border);
+  padding: 0.7rem;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.data-scroll thead th {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.funnel-table {
+  min-width: 38rem;
+  table-layout: fixed;
+}
+
+.funnel-table th:first-child {
+  width: 9rem;
+}
+
+.funnel-value {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.45rem;
+}
+
+.funnel-value > span {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.funnel-track {
+  background: var(--surface-strong);
+  display: block;
+  height: 0.45rem;
+}
+
+.funnel-fill {
+  display: block;
+  height: 100%;
+}
+
+.funnel-baseline {
+  background: var(--control-border);
+}
+
+.funnel-incident {
+  background: var(--primary);
+}
+
+.segment-table {
+  min-width: 43rem;
+  table-layout: fixed;
+}
+
+.segment-table th:first-child {
+  width: 5rem;
+}
+
+.segment-table th:nth-child(2) {
+  width: 7rem;
+}
+
+.segment-table td {
+  padding: 0.2rem;
+}
+
+.segment-table button {
+  background: var(--canvas);
+  border: 1px solid var(--control-border);
+  color: var(--ink);
+  cursor: pointer;
+  display: grid;
+  gap: 0.15rem;
+  min-height: 3.5rem;
+  padding: 0.5rem;
+  text-align: left;
+  width: 100%;
+}
+
+.segment-table button strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.segment-table button span {
+  font-size: 0.68rem;
+}
+
+.segment-table button[data-tone="down"] {
+  background: var(--negative-soft);
+  color: var(--negative);
+}
+
+.segment-table button[data-tone="severe"] {
+  background: var(--incident);
+  border-color: var(--incident);
+  color: white;
+}
+
+.segment-table button[data-cause="true"] {
+  border-color: var(--ink);
+  border-width: 2px;
+}
+
+.segment-table button[aria-pressed="true"] {
+  box-shadow: inset 0 0 0 3px var(--ink);
+}
+
+.sr-only {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+@media (max-width: 38rem) {
+  .section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .section-heading p {
+    text-align: left;
+  }
+
+  .marker-key {
+    grid-template-columns: 1fr;
+  }
+}

@@ -164,10 +164,24 @@ A follow-up message like **“Show only mobile traffic”** should update the sa
 
 ## Project Status
 
-This repository currently contains the project definition and architecture for the DeployLens demo. Implementation can proceed in three tracks:
+Layers 1–6 of the vertical slice are implemented:
 
-1. Telemetry generation + ClickHouse schema/MV setup
-2. Trigger.dev incident investigation tools
-3. Next.js chat UI + interactive Incident Card
+- a validated `IncidentResult` contract and fixture-backed evidence surface,
+- deterministic ClickHouse schema, seed data, queries, and root-cause ranking,
+- Trigger.dev child-task orchestration with streamed progress,
+- a durable Trigger.dev chat transport with scoped session tokens,
+- a native SVG timeline, CSS funnel comparison, and linked 24-cell segment heatmap.
+
+Follow-up refinement, controlled failures, and deployment verification remain in Layers 7–8. This is still a private seeded demo; add authentication and rate limiting before exposing the session actions publicly.
+
+## Local development
+
+Use Node.js 22. Copy `.env.example` to a local ignored environment file and provide the Trigger.dev project, ClickHouse, and Anthropic credentials. Load `db/schema.sql` and `db/seed.sql` into ClickHouse, then run the web app and Trigger.dev worker in separate terminals:
+
+```sh
+npm install
+npm run dev
+npx trigger.dev@4.5.5 dev
+```
 
 See [BUILD_PLAN.md](./BUILD_PLAN.md) for the contract-first, layer-by-layer implementation plan.

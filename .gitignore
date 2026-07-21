@@ -1,0 +1,7 @@
+.env*
+!.env.example
+.next/
+.trigger/
+*.tsbuildinfo
+node_modules/
+out/
