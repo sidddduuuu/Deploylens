@@ -10,6 +10,10 @@
   --primary-hover: oklch(0.36 0.105 140);
   --primary-soft: oklch(0.94 0.035 140);
   --negative: oklch(0.43 0.16 28);
+  --negative-soft: oklch(0.94 0.035 28);
+  --deployment: oklch(0.43 0.13 255);
+  --incident: var(--negative);
+  --recovery: var(--primary);
   --focus: oklch(0.54 0.14 140);
   --radius: 0.5rem;
 }
@@ -41,7 +45,10 @@ a {
 
 button:focus-visible,
 a:focus-visible,
-textarea:focus-visible {
+textarea:focus-visible,
+summary:focus-visible,
+.chart-scroll:focus-visible,
+.data-scroll:focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 3px;
 }
@@ -153,6 +160,15 @@ textarea:focus-visible {
   padding: 1.5rem;
 }
 
+.message-log {
+  display: flex;
+  flex-direction: column;
+  gap: 1.35rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
 .message {
   max-width: 95%;
 }
@@ -182,8 +198,7 @@ textarea:focus-visible {
 }
 
 .message-system {
-  border-left: 3px solid var(--primary);
-  padding: 0.2rem 0 0.2rem 0.9rem;
+  padding: 0.2rem 0;
 }
 
 .message-system span {
@@ -220,6 +235,13 @@ textarea:focus-visible {
   justify-content: center;
   margin: 0;
   width: 1.25rem;
+}
+
+.progress-list em {
+  font-size: 0.7rem;
+  font-style: normal;
+  margin-left: auto;
+  text-transform: capitalize;
 }
 
 .composer {
@@ -315,8 +337,8 @@ textarea:focus-visible {
 }
 
 .evidence-header h2 {
-  font-size: clamp(1.8rem, 3vw, 3rem);
-  letter-spacing: -0.045em;
+  font-size: 2.35rem;
+  letter-spacing: -0.035em;
   line-height: 1.08;
   margin: 0;
   max-width: 21ch;
@@ -362,13 +384,10 @@ textarea:focus-visible {
   font-size: 0.9rem;
 }
 
-.view-controls {
-  display: inline-flex;
-}
-
-.view-controls button {
+.view-reset {
   background: var(--canvas);
   border: 1px solid var(--control-border);
+  border-radius: var(--radius);
   color: var(--muted);
   cursor: pointer;
   font-size: 0.76rem;
@@ -377,25 +396,10 @@ textarea:focus-visible {
   padding: 0.55rem 0.8rem;
 }
 
-.view-controls button:first-child {
-  border-radius: var(--radius) 0 0 var(--radius);
-}
-
-.view-controls button:last-child {
-  border-radius: 0 var(--radius) var(--radius) 0;
-  margin-left: -1px;
-}
-
-.view-controls button:only-child {
-  border-radius: var(--radius);
-  margin-left: 0;
-}
-
-.view-controls button[aria-pressed="true"] {
+.view-reset[aria-pressed="true"] {
   background: var(--primary);
   border-color: var(--primary);
   color: white;
-  position: relative;
 }
 
 .metrics {
@@ -424,7 +428,7 @@ textarea:focus-visible {
 }
 
 .metrics dd {
-  font-size: clamp(1.3rem, 2vw, 1.8rem);
+  font-size: 1.55rem;
   font-variant-numeric: tabular-nums;
   font-weight: 720;
   letter-spacing: -0.035em;
@@ -433,59 +437,6 @@ textarea:focus-visible {
 
 .negative {
   color: var(--negative);
-}
-
-.sequence {
-  padding: 2.5rem 0;
-}
-
-.section-heading {
-  margin-bottom: 1.75rem;
-}
-
-.markers {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  position: relative;
-}
-
-.markers::before {
-  background: var(--border);
-  content: "";
-  height: 1px;
-  left: 0.4rem;
-  position: absolute;
-  right: 0.4rem;
-  top: 0.4rem;
-}
-
-.markers li {
-  display: grid;
-  gap: 0.4rem;
-  position: relative;
-}
-
-.marker-dot {
-  background: var(--canvas);
-  border: 3px solid var(--primary);
-  border-radius: 50%;
-  height: 0.85rem;
-  margin-bottom: 0.5rem;
-  width: 0.85rem;
-}
-
-.markers time {
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-variant-numeric: tabular-nums;
-  font-weight: 650;
-}
-
-.markers strong {
-  font-size: 0.84rem;
 }
 
 .evidence-footer {
@@ -530,10 +481,12 @@ textarea:focus-visible {
   .chat-rail {
     border-bottom: 1px solid var(--border);
     border-right: 0;
+    max-height: 30rem;
   }
 
   .conversation {
-    min-height: 16rem;
+    min-height: 8rem;
+    overflow-y: auto;
   }
 
   .evidence-pane {
@@ -542,19 +495,14 @@ textarea:focus-visible {
 }
 
 @media (max-width: 38rem) {
-  .mode {
-    font-size: 0;
-  }
-
-  .mode > span {
-    height: 0.6rem;
-    width: 0.6rem;
-  }
-
   .evidence-header,
   .evidence-toolbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .evidence-header h2 {
+    font-size: 1.65rem;
   }
 
   .metrics {
@@ -574,27 +522,6 @@ textarea:focus-visible {
     border-top: 1px solid var(--border);
   }
 
-  .markers {
-    gap: 1.25rem;
-    grid-template-columns: 1fr;
-  }
-
-  .markers::before {
-    bottom: 0.4rem;
-    height: auto;
-    left: 0.4rem;
-    right: auto;
-    top: 0.4rem;
-    width: 1px;
-  }
-
-  .markers li {
-    grid-template-columns: 1.5rem 5rem 1fr;
-  }
-
-  .marker-dot {
-    grid-row: 1;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

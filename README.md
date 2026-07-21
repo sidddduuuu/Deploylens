@@ -164,14 +164,15 @@ A follow-up message like **“Show only mobile traffic”** should update the sa
 
 ## Project Status
 
-Layers 1–5 of the vertical slice are implemented:
+Layers 1–6 of the vertical slice are implemented:
 
 - a validated `IncidentResult` contract and fixture-backed evidence surface,
 - deterministic ClickHouse schema, seed data, queries, and root-cause ranking,
 - Trigger.dev child-task orchestration with streamed progress,
-- a durable Trigger.dev chat transport with scoped session tokens.
+- a durable Trigger.dev chat transport with scoped session tokens,
+- a native SVG timeline, CSS funnel comparison, and linked 24-cell segment heatmap.
 
-The full timeline, funnel, and segment interactions remain in Layers 6–8. This is still a private seeded demo; add authentication and rate limiting before exposing the session actions publicly.
+Follow-up refinement, controlled failures, and deployment verification remain in Layers 7–8. This is still a private seeded demo; add authentication and rate limiting before exposing the session actions publicly.
 
 ## Local development
 

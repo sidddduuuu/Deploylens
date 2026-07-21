@@ -18,6 +18,7 @@ import {
   type IncidentResult,
   type InvestigationProgress,
 } from "./schema.ts";
+import { normalizedTimelineX, segmentTone, selectIncidentView } from "./view.ts";
 
 type DeployLensMessage = InferChatUIMessage<typeof deploylensAgent>;
 
@@ -34,6 +35,12 @@ function formatPercent(rate: number) {
     style: "percent",
   }).format(rate);
 }
+
+function formatSignedPercent(value: number) {
+  return `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
+
+const countFormatter = new Intl.NumberFormat("en");
 
 function latestAssistant(messages: readonly DeployLensMessage[]) {
   return messages.findLast(({ role }) => role === "assistant");
@@ -66,21 +73,23 @@ function Conversation({ messages, progress, error }: Readonly<{
   error: Error | undefined;
 }>) {
   return (
-    <ol aria-live="polite" className="conversation">
-      {messages.length === 0 ? (
-        <li className="message message-system">
-          <span>DeployLens</span>
-          <p>Ready to investigate the seeded checkout incident.</p>
-        </li>
-      ) : null}
-      {messages.map((message) => message.parts.map((part, index) => part.type === "text" ? (
-        <li className={`message message-${message.role === "user" ? "user" : "system"}`} key={`${message.id}-${index}`}>
-          <span>{message.role === "user" ? "You" : "DeployLens"}</span>
-          <p>{part.text}</p>
-        </li>
-      ) : null))}
+    <div className="conversation">
+      <ol aria-live="polite" aria-relevant="additions text" className="message-log" role="log">
+        {messages.length === 0 ? (
+          <li className="message message-system">
+            <span>DeployLens</span>
+            <p>Ready to investigate the seeded checkout incident.</p>
+          </li>
+        ) : null}
+        {messages.map((message) => message.parts.map((part, index) => part.type === "text" ? (
+          <li className={`message message-${message.role === "user" ? "user" : "system"}`} key={`${message.id}-${index}`}>
+            <span>{message.role === "user" ? "You" : "DeployLens"}</span>
+            <p>{part.text}</p>
+          </li>
+        ) : null))}
+      </ol>
       {progress.length > 0 ? (
-        <li className="message message-system progress-message">
+        <div aria-live="polite" className="message message-system progress-message" role="status">
           <span>Analysis progress</span>
           <ul className="progress-list">
             {progress.map(({ label, status }) => (
@@ -89,17 +98,18 @@ function Conversation({ messages, progress, error }: Readonly<{
                   {status === "complete" ? "✓" : status === "failed" ? "×" : "·"}
                 </span>
                 {label}
+                <em>{status}</em>
               </li>
             ))}
           </ul>
-        </li>
+        </div>
       ) : null}
       {error ? (
-        <li className="composer-error" role="alert">
+        <p aria-live="polite" className="composer-error" role="status">
           The investigation could not complete. Check the Trigger.dev and ClickHouse configuration.
-        </li>
+        </p>
       ) : null}
-    </ol>
+    </div>
   );
 }
 
@@ -148,13 +158,20 @@ function Composer({ initialQuestion, busy, onSubmit }: Readonly<{
   );
 }
 
-function EvidenceMetrics({ view }: Readonly<{ view: IncidentResult["views"][number] }>) {
-  const baselineStart = view.funnel.baseline[0]!.sessions;
-  const baseline = view.funnel.baseline.at(-1)!;
-  const incidentStart = view.funnel.incident[0]!.sessions;
-  const incident = view.funnel.incident.at(-1)!;
-  const baselineConversion = baselineStart === 0 ? 0 : baseline.sessions / baselineStart;
-  const incidentConversion = incidentStart === 0 ? 0 : incident.sessions / incidentStart;
+type IncidentView = IncidentResult["views"][number];
+type SegmentDelta = IncidentResult["segments"][number];
+type IncidentMarker = IncidentResult["markers"][number];
+type TimelineMetric = "conversionRate" | "errorRate" | "p95LatencyMs";
+
+function checkoutConversion(stages: IncidentView["funnel"]["baseline"]) {
+  const starts = stages.find(({ key }) => key === "checkout_started")!.sessions;
+  const purchases = stages.find(({ key }) => key === "purchase")!.sessions;
+  return starts === 0 ? 0 : purchases / starts;
+}
+
+function EvidenceMetrics({ view }: Readonly<{ view: IncidentView }>) {
+  const baselineConversion = checkoutConversion(view.funnel.baseline);
+  const incidentConversion = checkoutConversion(view.funnel.incident);
   const peakLatency = Math.max(...view.timeline.map(({ p95LatencyMs }) => p95LatencyMs));
   const relativeChange = baselineConversion === 0
     ? 0
@@ -170,52 +187,204 @@ function EvidenceMetrics({ view }: Readonly<{ view: IncidentResult["views"][numb
   );
 }
 
-function IncidentMarkers({ incident }: Readonly<{ incident: IncidentResult }>) {
+const chartWidth = 720;
+const chartLeft = 76;
+const chartRight = 16;
+const laneHeight = 48;
+
+function timelineX(at: string, timeline: IncidentView["timeline"]) {
+  return chartLeft + normalizedTimelineX(at, timeline) * (chartWidth - chartLeft - chartRight);
+}
+
+function metricPoints(
+  timeline: IncidentView["timeline"],
+  metric: TimelineMetric,
+  top: number,
+  ceiling: number,
+) {
+  return timeline.map((point) => {
+    const ratio = Math.min(point[metric] / ceiling, 1);
+    return `${timelineX(point.at, timeline)},${top + laneHeight * (1 - ratio)}`;
+  }).join(" ");
+}
+
+function TimelineDetails({ view }: Readonly<{ view: IncidentView }>) {
   return (
-    <section aria-labelledby="sequence-title" className="sequence">
-      <div className="section-heading">
-        <p className="eyebrow">Correlated sequence</p>
-        <h2 id="sequence-title">Deploy, impact, recovery</h2>
+    <details className="data-details">
+      <summary>View timeline data</summary>
+      <div aria-label="Scrollable timeline data" className="data-scroll" tabIndex={0}>
+        <table>
+          <thead><tr><th scope="col">Time</th><th scope="col">Conversion</th><th scope="col">Errors</th><th scope="col">p95 latency</th></tr></thead>
+          <tbody>{view.timeline.map((point) => (
+            <tr key={point.at}>
+              <th scope="row"><time dateTime={point.at}>{timeFormatter.format(new Date(point.at))}</time></th>
+              <td>{formatPercent(point.conversionRate)}</td>
+              <td>{formatPercent(point.errorRate)}</td>
+              <td>{countFormatter.format(point.p95LatencyMs)} ms</td>
+            </tr>
+          ))}</tbody>
+        </table>
       </div>
-      <ol className="markers">
-        {incident.markers.map((marker) => (
-          <li key={`${marker.kind}-${marker.at}`}>
-            <span aria-hidden="true" className="marker-dot" />
-            <time dateTime={marker.at}>{timeFormatter.format(new Date(marker.at))} UTC</time>
-            <strong>{marker.label}</strong>
-          </li>
-        ))}
-      </ol>
+    </details>
+  );
+}
+
+function MarkerKey({ markers }: Readonly<{ markers: readonly IncidentMarker[] }>) {
+  return (
+    <ul aria-label="Correlated incident events" className="marker-key">
+      {markers.map((marker) => (
+        <li key={`${marker.kind}-${marker.at}`}>
+          <span aria-hidden="true" className={`marker-swatch marker-${marker.kind}`} />
+          <time dateTime={marker.at}>{timeFormatter.format(new Date(marker.at))} UTC</time>
+          <strong>{marker.label}</strong>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function TimelineChart({ incident, view }: Readonly<{
+  incident: IncidentResult;
+  view: IncidentView;
+}>) {
+  const allPoints = incident.views.flatMap(({ timeline }) => timeline);
+  const maxError = Math.max(0.1, ...allPoints.map(({ errorRate }) => errorRate));
+  const maxLatency = Math.max(500, ...allPoints.map(({ p95LatencyMs }) => p95LatencyMs));
+  const lanes = [
+    { metric: "conversionRate", label: "Conversion 0–100%", top: 12, ceiling: 1 },
+    { metric: "errorRate", label: `Errors 0–${formatPercent(maxError)}`, top: 86, ceiling: maxError },
+    { metric: "p95LatencyMs", label: `p95 0–${countFormatter.format(maxLatency)} ms`, top: 160, ceiling: maxLatency },
+  ] as const;
+  const firstAt = view.timeline[0]!.at;
+  const lastAt = view.timeline.at(-1)!.at;
+  const firstTime = Date.parse(firstAt);
+  const lastTime = Date.parse(lastAt);
+  const markers = incident.markers.filter(({ at }) => {
+    const markerTime = Date.parse(at);
+    return markerTime >= firstTime && markerTime <= lastTime;
+  });
+
+  return (
+    <section aria-labelledby="timeline-title" className="evidence-section">
+      <div className="section-heading"><h3 id="timeline-title">Incident timeline</h3><p>Conversion, errors, and latency share one UTC time axis.</p></div>
+      <figure className="timeline-figure">
+        <div aria-label="Scrollable incident timeline" className="chart-scroll" tabIndex={0}>
+          <svg aria-labelledby="timeline-svg-title timeline-svg-description" role="img" viewBox={`0 0 ${chartWidth} 232`}>
+            <title id="timeline-svg-title">{`Checkout incident timeline for ${view.label}`}</title>
+            <desc id="timeline-svg-description">Three aligned lanes show conversion rate, error rate, and p95 latency. Vertical lines mark deployment, incident start, and rollback.</desc>
+            {lanes.map(({ metric, label, top, ceiling }) => (
+              <g className={`timeline-lane lane-${metric}`} key={metric}>
+                <text x="0" y={top + 12}>{label}</text>
+                <line x1={chartLeft} x2={chartWidth - chartRight} y1={top + laneHeight} y2={top + laneHeight} />
+                <polyline points={metricPoints(view.timeline, metric, top, ceiling)} />
+              </g>
+            ))}
+            {markers.map((marker) => (
+              <line className={`timeline-marker marker-${marker.kind}`} key={`${marker.kind}-${marker.at}`} x1={timelineX(marker.at, view.timeline)} x2={timelineX(marker.at, view.timeline)} y1="4" y2="214" />
+            ))}
+            <text className="timeline-time" x={chartLeft} y="229">{timeFormatter.format(new Date(firstAt))}</text>
+            <text className="timeline-time timeline-time-end" x={chartWidth - chartRight} y="229">{timeFormatter.format(new Date(lastAt))} UTC</text>
+          </svg>
+        </div>
+        <figcaption>The same marker positions apply across every lane; exact values are available below.</figcaption>
+      </figure>
+      <MarkerKey markers={markers} />
+      <TimelineDetails view={view} />
     </section>
   );
 }
 
-function ViewControls({ incident, selectedViewId, onSelect }: Readonly<{
+function FunnelCell({ stage, kind }: Readonly<{
+  stage: IncidentView["funnel"]["baseline"][number];
+  kind: "baseline" | "incident";
+}>) {
+  return (
+    <td>
+      <span className="funnel-value"><strong>{countFormatter.format(stage.sessions)}</strong><span>{formatPercent(stage.completionFromStart)} complete · {formatPercent(stage.dropoffFromPrevious)} drop</span></span>
+      <span aria-hidden="true" className="funnel-track"><span className={`funnel-fill funnel-${kind}`} style={{ width: `${stage.completionFromStart * 100}%` }} /></span>
+    </td>
+  );
+}
+
+function FunnelComparison({ view }: Readonly<{ view: IncidentView }>) {
+  return (
+    <section aria-labelledby="funnel-title" className="evidence-section">
+      <div className="section-heading"><h3 id="funnel-title">Checkout funnel</h3><p>Baseline and incident counts at every stage.</p></div>
+      <div aria-label="Scrollable funnel comparison" className="data-scroll" tabIndex={0}>
+        <table className="funnel-table">
+          <thead><tr><th scope="col">Stage</th><th scope="col">Baseline</th><th scope="col">Incident</th></tr></thead>
+          <tbody>{view.funnel.baseline.map((baseline, index) => (
+            <tr key={baseline.key}>
+              <th scope="row">{baseline.label}</th>
+              <FunnelCell kind="baseline" stage={baseline} />
+              <FunnelCell kind="incident" stage={view.funnel.incident[index]!} />
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+const devices = ["desktop", "mobile", "tablet"] as const;
+
+function isCause(incident: IncidentResult, entry: SegmentDelta) {
+  const cause = incident.finding.affectedSegment;
+  return entry.segment.version === cause.version &&
+    entry.segment.region === cause.region &&
+    entry.segment.device === cause.device;
+}
+
+function SegmentCell({ entry, incident, selectedViewId, onSelect }: Readonly<{
+  entry: SegmentDelta;
   incident: IncidentResult;
   selectedViewId: string;
   onSelect: (viewId: string) => void;
 }>) {
-  const affected = incident.segments.find(({ segment }) =>
-    segment.version === incident.finding.affectedSegment.version &&
-    segment.region === incident.finding.affectedSegment.region &&
-    segment.device === incident.finding.affectedSegment.device,
+  const cause = isCause(incident, entry);
+  const change = formatSignedPercent(entry.conversionRelativeChangePct);
+  return (
+    <td>
+      <button aria-label={`${entry.segment.version}, ${entry.segment.region}, ${entry.segment.device}: ${change} conversion change, ${formatSignedPercent(entry.checkoutFailureRelativeChangePct)} checkout failure change${cause ? ", likely cause" : ""}.`} aria-pressed={selectedViewId === entry.viewId} data-cause={cause || undefined} data-tone={segmentTone(entry.conversionRelativeChangePct)} onClick={() => onSelect(entry.viewId)} type="button">
+        <strong>{change}</strong><span>{cause ? "Likely cause" : `${formatPercent(entry.incidentConversionRate)} conversion`}</span>
+      </button>
+    </td>
   );
-  const viewIds = new Set([incident.defaultViewId, affected?.viewId]);
-  const views = incident.views.filter(({ id }) => viewIds.has(id));
+}
+
+function SegmentHeatmap({ incident, selectedViewId, onSelect }: Readonly<{
+  incident: IncidentResult;
+  selectedViewId: string;
+  onSelect: (viewId: string) => void;
+}>) {
+  const versions = [...new Set(incident.segments.map(({ segment }) => segment.version))];
 
   return (
-    <div aria-label="Evidence view" className="view-controls" role="group">
-      {views.map((view) => (
-        <button
-          aria-pressed={selectedViewId === view.id}
-          key={view.id}
-          onClick={() => onSelect(view.id)}
-          type="button"
-        >
-          {view.id === incident.defaultViewId ? "All traffic" : "Affected segment"}
-        </button>
-      ))}
-    </div>
+    <section aria-labelledby="segments-title" className="evidence-section">
+      <div className="section-heading"><h3 id="segments-title">Segment scan</h3><p>Conversion change by version, region, and device. Select a cell to update every view.</p></div>
+      <div aria-label="Scrollable segment heatmap" className="data-scroll" tabIndex={0}>
+        <table className="segment-table">
+          <caption className="sr-only">Conversion change across all 24 scanned segments</caption>
+          <thead><tr><th scope="col">Version</th><th scope="col">Region</th>{devices.map((device) => <th key={device} scope="col">{device}</th>)}</tr></thead>
+          {versions.map((version) => {
+            const regions = [...new Set(incident.segments.filter(({ segment }) => segment.version === version).map(({ segment }) => segment.region))];
+            return (
+              <tbody key={version}>{regions.map((region, regionIndex) => (
+                <tr key={region}>
+                  {regionIndex === 0 ? <th rowSpan={regions.length} scope="rowgroup">{version}</th> : null}
+                  <th scope="row">{region}</th>
+                  {/* ponytail: the contract fixes this at 24 cells; index it only if cardinality grows. */}
+                  {devices.map((device) => {
+                    const entry = incident.segments.find(({ segment }) => segment.version === version && segment.region === region && segment.device === device);
+                    return entry ? <SegmentCell entry={entry} incident={incident} key={device} onSelect={onSelect} selectedViewId={selectedViewId} /> : <td key={device}>—</td>;
+                  })}
+                </tr>
+              ))}</tbody>
+            );
+          })}
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -225,11 +394,10 @@ function IncidentEvidence({ incident, selectedViewId, onSelect, preview }: Reado
   onSelect: (viewId: string) => void;
   preview: boolean;
 }>) {
-  const view = incident.views.find(({ id }) => id === selectedViewId)
-    ?? incident.views.find(({ id }) => id === incident.defaultViewId)!;
+  const view = selectIncidentView(incident, selectedViewId);
 
   return (
-    <section aria-labelledby="finding-title" className="evidence-pane">
+    <article aria-labelledby="finding-title" className="evidence-pane">
       <header className="evidence-header">
         <div>
           <p className="eyebrow">
@@ -241,16 +409,18 @@ function IncidentEvidence({ incident, selectedViewId, onSelect, preview }: Reado
       </header>
       <div className="evidence-toolbar">
         <div><span>Current evidence</span><strong aria-live="polite">{view.label}</strong></div>
-        <ViewControls incident={incident} onSelect={onSelect} selectedViewId={selectedViewId} />
+        <button aria-pressed={view.id === incident.defaultViewId} className="view-reset" onClick={() => onSelect(incident.defaultViewId)} type="button">All traffic</button>
       </div>
       <EvidenceMetrics view={view} />
-      <IncidentMarkers incident={incident} />
+      <TimelineChart incident={incident} view={view} />
+      <FunnelComparison view={view} />
+      <SegmentHeatmap incident={incident} onSelect={onSelect} selectedViewId={view.id} />
       <footer className="evidence-footer">
         <span>24 segments scanned</span>
         <span>Release {incident.finding.cause.version}</span>
         <span>Commit {incident.finding.cause.commitSha}</span>
       </footer>
-    </section>
+    </article>
   );
 }
 
@@ -299,9 +469,6 @@ export function InvestigationWorkspace({
   const currentIncident = streamedIncident ?? (messages.length === 0 ? incident : undefined);
   const progress = progressFromMessages(messages);
   const busy = status === "submitted" || status === "streaming";
-  const activeViewId = currentIncident?.views.some(({ id }) => id === selectedViewId)
-    ? selectedViewId
-    : currentIncident?.defaultViewId;
 
   function investigate(question: string) {
     void sendMessage({ text: question });
@@ -318,12 +485,12 @@ export function InvestigationWorkspace({
         <Conversation error={error} messages={messages} progress={progress} />
         <Composer busy={busy} initialQuestion={incident.question} onSubmit={investigate} />
       </aside>
-      {currentIncident && activeViewId ? (
+      {currentIncident ? (
         <IncidentEvidence
           incident={currentIncident}
           onSelect={setSelectedViewId}
           preview={!streamedIncident}
-          selectedViewId={activeViewId}
+          selectedViewId={selectedViewId}
         />
       ) : (
         <EvidenceStatus busy={busy} failed={Boolean(error)} />

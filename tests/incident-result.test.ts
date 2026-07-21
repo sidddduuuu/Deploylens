@@ -6,6 +6,11 @@ import {
   incidentResultSchema,
   type IncidentResultInput,
 } from "../src/features/investigation/schema.ts";
+import {
+  normalizedTimelineX,
+  segmentTone,
+  selectIncidentView,
+} from "../src/features/investigation/view.ts";
 
 function copyFixture() {
   return structuredClone(incidentFixture) as IncidentResultInput;
@@ -97,4 +102,19 @@ test("markers and deployment evidence are consistent", () => {
 
   assert.equal(incidentResultSchema.safeParse(missingRollback).success, false);
   assert.equal(incidentResultSchema.safeParse(mismatchedVersion).success, false);
+});
+
+test("selected view supplies linked evidence, heat tone, and proportional time", () => {
+  const affected = incidentFixture.segments.find(({ segment }) =>
+    segment.version === "1.8.3" && segment.region === "EU-West" && segment.device === "mobile",
+  )!;
+  const selected = selectIncidentView(incidentFixture, affected.viewId);
+
+  assert.equal(selected.id, affected.viewId);
+  assert.ok(selected.timeline.some(({ conversionRate }) => conversionRate < 0.65));
+  assert.equal(selected.funnel.incident.at(-1)!.sessions, 616);
+  assert.equal(selectIncidentView(incidentFixture, "missing").id, incidentFixture.defaultViewId);
+  assert.deepEqual([-11, -3, 0].map(segmentTone), ["severe", "down", "stable"]);
+  const irregular = [{ at: "2026-07-20T14:00:00Z" }, { at: "2026-07-20T14:10:00Z" }, { at: "2026-07-20T14:30:00Z" }];
+  assert.deepEqual(irregular.map(({ at }) => normalizedTimelineX(at, irregular)), [0, 1 / 3, 1]);
 });
