@@ -7,7 +7,7 @@ const rateSchema = z.number().finite().min(0).max(1);
 const countSchema = z.number().int().nonnegative();
 const percentageSchema = z.number().finite();
 
-const timeRangeSchema = z
+export const timeRangeSchema = z
   .object({
     from: timestampSchema,
     to: timestampSchema,
@@ -38,7 +38,7 @@ const timelinePointSchema = z
   })
   .strict();
 
-const timelineSchema = z
+export const timelineSchema = z
   .array(timelinePointSchema)
   .min(2)
   .max(180)
@@ -59,7 +59,7 @@ const funnelStageSchema = z
   })
   .strict();
 
-const funnelSchema = z
+export const funnelSchema = z
   .array(funnelStageSchema)
   .length(4)
   .superRefine((stages, context) => {
