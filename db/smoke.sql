@@ -7,7 +7,7 @@ SELECT throwIf(
         OR countIf(device NOT IN ('desktop', 'mobile', 'tablet')) != 0,
     'seed must contain 50,000 sessions, 200,000 events, and 24 segments'
 )
-FROM events;
+FROM deploylens.events;
 
 SELECT throwIf(
     count() != 2
@@ -25,7 +25,7 @@ SELECT throwIf(
         ) != 1,
     'deployment and rollback markers must match the incident'
 )
-FROM deployments
+FROM deploylens.deployments
 WHERE service = 'checkout';
 
 SELECT throwIf(count() != 0, 'every minute rollup bucket must match raw events')
@@ -43,7 +43,7 @@ FROM
         countIf(event_name = 'checkout_error') AS raw_errors,
         countIf(event_name = 'purchase') AS raw_purchases,
         quantileExact(0.95)(latency_ms) AS raw_p95_latency_ms
-    FROM events
+    FROM deploylens.events
     GROUP BY service, minute, version, region, device
 ) AS raw
 FULL OUTER JOIN
@@ -60,7 +60,7 @@ FULL OUTER JOIN
         sumMerge(errors) AS rollup_errors,
         sumMerge(purchases) AS rollup_purchases,
         quantileExactMerge(0.95)(p95_latency_ms) AS rollup_p95_latency_ms
-    FROM minute_metrics
+    FROM deploylens.minute_metrics
     GROUP BY service, minute, version, region, device
 ) AS rollup USING (service, minute, version, region, device)
 WHERE raw_present = 0
@@ -75,7 +75,7 @@ SELECT throwIf(count() != 0, 'every session must contain the ordered checkout fu
 FROM
 (
     SELECT session_id
-    FROM events
+    FROM deploylens.events
     GROUP BY session_id
     HAVING windowFunnel(30)(
         timestamp,
@@ -89,7 +89,7 @@ FROM
 WITH
     (
         SELECT tuple(countIf(event_name = 'checkout_error'), count())
-        FROM events
+        FROM deploylens.events
         WHERE service = 'checkout'
             AND version = '1.8.3'
             AND region = 'EU-West'
@@ -100,7 +100,7 @@ WITH
     ) AS baseline,
     (
         SELECT tuple(countIf(event_name = 'checkout_error'), count())
-        FROM events
+        FROM deploylens.events
         WHERE service = 'checkout'
             AND version = '1.8.3'
             AND region = 'EU-West'
@@ -132,7 +132,7 @@ FROM
         region,
         device,
         countIf(event_name = 'checkout_error') / count() AS failure_rate
-    FROM events
+    FROM deploylens.events
     WHERE service = 'checkout'
         AND timestamp >= toDateTime('2026-07-20 13:50:00', 'UTC')
         AND timestamp < toDateTime('2026-07-20 14:17:00', 'UTC')
@@ -146,7 +146,7 @@ INNER JOIN
         region,
         device,
         countIf(event_name = 'checkout_error') / count() AS failure_rate
-    FROM events
+    FROM deploylens.events
     WHERE service = 'checkout'
         AND timestamp >= toDateTime('2026-07-20 14:20:00', 'UTC')
         AND timestamp < toDateTime('2026-07-20 14:47:00', 'UTC')
@@ -158,7 +158,7 @@ WHERE NOT (version = '1.8.3' AND region = 'EU-West' AND device = 'mobile');
 WITH
     (
         SELECT tuple(countIf(event_name = 'checkout_error'), count())
-        FROM events
+        FROM deploylens.events
         WHERE service = 'checkout'
             AND version = '1.8.3'
             AND region = 'EU-West'
@@ -169,7 +169,7 @@ WITH
     ) AS baseline,
     (
         SELECT tuple(countIf(event_name = 'checkout_error'), count())
-        FROM events
+        FROM deploylens.events
         WHERE service = 'checkout'
             AND version = '1.8.3'
             AND region = 'EU-West'

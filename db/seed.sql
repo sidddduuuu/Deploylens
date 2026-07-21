@@ -1,12 +1,12 @@
-TRUNCATE TABLE events;
-TRUNCATE TABLE deployments;
-TRUNCATE TABLE minute_metrics;
+TRUNCATE TABLE deploylens.events;
+TRUNCATE TABLE deploylens.deployments;
+TRUNCATE TABLE deploylens.minute_metrics;
 
-INSERT INTO deployments VALUES
+INSERT INTO deploylens.deployments VALUES
     ('2026-07-20 14:18:00', 'checkout', '1.8.3', 'a1843de', 'global'),
     ('2026-07-20 14:47:00', 'checkout', '1.8.2', 'b7c21af', 'global');
 
-INSERT INTO events
+INSERT INTO deploylens.events
 SELECT
     session_started_at + tupleElement(stage, 2) AS timestamp,
     session_id,

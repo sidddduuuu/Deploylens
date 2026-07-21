@@ -5,7 +5,17 @@ import {
   useTriggerChatTransport,
   type InferChatUIMessage,
 } from "@trigger.dev/sdk/chat/react";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import type { ChatSessionPersistedState } from "@trigger.dev/sdk/chat";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type FormEvent,
+} from "react";
+import { z } from "zod";
 
 import type {
   ChatAccessToken,
@@ -14,6 +24,7 @@ import type {
 import type { deploylensAgent } from "../../trigger/deploylens.ts";
 import {
   classifyInvestigationQuestion,
+  investigationQuestionSchema,
   type IncidentResult,
 } from "./schema.ts";
 import {
@@ -24,6 +35,88 @@ import {
 import { normalizedTimelineX, segmentTone, selectIncidentView } from "./view.ts";
 
 type DeployLensMessage = InferChatUIMessage<typeof deploylensAgent>;
+
+const storedSessionSchema = z
+  .object({
+    publicAccessToken: z.string().min(1),
+    lastEventId: z.string().min(1).optional(),
+    isStreaming: z.boolean().optional(),
+  })
+  .strict();
+
+const storedResumeSchema = z
+  .object({
+    question: investigationQuestionSchema,
+    session: storedSessionSchema,
+  })
+  .strict();
+
+type StoredResume = Readonly<{
+  question: string;
+  session: ChatSessionPersistedState;
+}>;
+
+function resumeStorageKey(chatId: string) {
+  return `deploylens:chat:${chatId}:resume`;
+}
+
+function parseStoredResume(stored: string | null): StoredResume | undefined {
+  try {
+    if (!stored) return undefined;
+    const { question, session } = storedResumeSchema.parse(JSON.parse(stored));
+    return {
+      question,
+      session: {
+        publicAccessToken: session.publicAccessToken,
+        ...(session.lastEventId === undefined ? {} : { lastEventId: session.lastEventId }),
+        ...(session.isStreaming === undefined ? {} : { isStreaming: session.isStreaming }),
+      },
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function persistResume(chatId: string, resume: StoredResume | null) {
+  if (typeof window === "undefined") return;
+  try {
+    const key = resumeStorageKey(chatId);
+    if (resume) window.sessionStorage.setItem(key, JSON.stringify(resume));
+    else window.sessionStorage.removeItem(key);
+  } catch {
+    // Storage is a refresh enhancement; the active chat remains usable without it.
+  }
+}
+
+function resumedMessages(chatId: string, resume: StoredResume | undefined) {
+  if (!resume) return [];
+  return [{
+    id: `resumed-${chatId}`,
+    parts: [{ text: resume.question, type: "text" }],
+    role: "user",
+  }] satisfies DeployLensMessage[];
+}
+
+function subscribeStoredResume() {
+  return () => undefined;
+}
+
+function serverStoredResume() {
+  return null;
+}
+
+function useStoredResume(chatId: string) {
+  const getSnapshot = useCallback(() => {
+    try {
+      return window.sessionStorage.getItem(resumeStorageKey(chatId));
+    } catch {
+      return null;
+    }
+  }, [chatId]);
+  const stored = useSyncExternalStore(subscribeStoredResume, getSnapshot, serverStoredResume);
+
+  return useMemo(() => parseStoredResume(stored), [stored]);
+}
 
 const timeFormatter = new Intl.DateTimeFormat("en-GB", {
   hour: "2-digit",
@@ -439,6 +532,10 @@ type InvestigationWorkspaceProps = Readonly<{
   startSessionAction: () => Promise<StartChatSessionResult>;
 }>;
 
+type InvestigationChatProps = InvestigationWorkspaceProps & Readonly<{
+  restoredResume?: StoredResume;
+}>;
+
 function ActiveIncidentEvidence({ incident, preview }: Readonly<{
   incident: IncidentResult;
   preview: boolean;
@@ -454,20 +551,43 @@ function ActiveIncidentEvidence({ incident, preview }: Readonly<{
   );
 }
 
-export function InvestigationWorkspace({
+function InvestigationChat({
   incident,
   chatId,
   mintAccessTokenAction,
+  restoredResume,
   startSessionAction,
-}: InvestigationWorkspaceProps) {
+}: InvestigationChatProps) {
   const submissionLock = useRef(false);
+  const [initialMessages] = useState(() => resumedMessages(chatId, restoredResume));
+  const latestQuestion = useRef(restoredResume?.question);
+  const turnSnapshotSaved = useRef(Boolean(restoredResume));
   const transport = useTriggerChatTransport<typeof deploylensAgent>({
     task: "deploylens-agent",
     accessToken: () => mintAccessTokenAction(),
+    onSessionChange: (changedChatId, session) => {
+      if (changedChatId !== chatId) return;
+      if (!session) {
+        turnSnapshotSaved.current = false;
+        persistResume(chatId, null);
+        return;
+      }
+      if (session.isStreaming === false) {
+        turnSnapshotSaved.current = false;
+        return;
+      }
+      if (session.isStreaming && !turnSnapshotSaved.current && latestQuestion.current) {
+        persistResume(chatId, { question: latestQuestion.current, session });
+        turnSnapshotSaved.current = true;
+      }
+    },
+    ...(restoredResume ? { sessions: { [chatId]: restoredResume.session } } : {}),
     startSession: () => startSessionAction(),
   });
   const { clearError, messages, regenerate, sendMessage, status } = useChat<DeployLensMessage>({
     id: chatId,
+    messages: initialMessages,
+    resume: initialMessages.length > 0,
     transport,
   });
   const messageState = deriveMessageState(messages, status);
@@ -486,6 +606,7 @@ export function InvestigationWorkspace({
     if (!classifyInvestigationQuestion(question)) return unsupportedQuestionMessage;
     if (submissionLock.current || busy) return "Wait for the current investigation to finish.";
     submissionLock.current = true;
+    latestQuestion.current = question;
     void sendMessage({ text: question }).catch(() => {
       submissionLock.current = false;
     });
@@ -521,5 +642,17 @@ export function InvestigationWorkspace({
         <EvidenceStatus state={messageState} />
       )}
     </div>
+  );
+}
+
+export function InvestigationWorkspace(props: InvestigationWorkspaceProps) {
+  const restoredResume = useStoredResume(props.chatId);
+
+  return (
+    <InvestigationChat
+      {...props}
+      key={restoredResume ? "restored" : "new"}
+      {...(restoredResume ? { restoredResume } : {})}
+    />
   );
 }
