@@ -38,6 +38,7 @@
     "src/**/*.ts",
     "src/**/*.tsx",
     "tests/**/*.ts",
+    "trigger.config.ts",
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [

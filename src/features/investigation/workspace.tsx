@@ -1,9 +1,25 @@
 "use client";
 
+import { useChat } from "@ai-sdk/react";
+import {
+  useTriggerChatTransport,
+  type InferChatUIMessage,
+} from "@trigger.dev/sdk/chat/react";
 import { useState, type FormEvent } from "react";
 
-import { supportsFixtureQuestion } from "./fixture-question.ts";
-import type { IncidentResult } from "./schema.ts";
+import type {
+  ChatAccessToken,
+  StartChatSessionResult,
+} from "../../app/actions.ts";
+import type { deploylensAgent } from "../../trigger/deploylens.ts";
+import {
+  incidentResultSchema,
+  investigationProgressSchema,
+  type IncidentResult,
+  type InvestigationProgress,
+} from "./schema.ts";
+
+type DeployLensMessage = InferChatUIMessage<typeof deploylensAgent>;
 
 const timeFormatter = new Intl.DateTimeFormat("en-GB", {
   hour: "2-digit",
@@ -19,23 +35,77 @@ function formatPercent(rate: number) {
   }).format(rate);
 }
 
-function Conversation({ incident, question }: Readonly<{ incident: IncidentResult; question: string }>) {
+function latestAssistant(messages: readonly DeployLensMessage[]) {
+  return messages.findLast(({ role }) => role === "assistant");
+}
+
+function incidentFromMessages(messages: readonly DeployLensMessage[]) {
+  for (const message of messages.toReversed()) {
+    for (const part of message.parts.toReversed()) {
+      if (part.type !== "tool-investigateIncident" || part.state !== "output-available") continue;
+      const parsed = incidentResultSchema.safeParse(part.output);
+      if (parsed.success) return parsed.data;
+    }
+  }
+}
+
+function progressFromMessages(messages: readonly DeployLensMessage[]) {
+  const assistant = latestAssistant(messages);
+  if (!assistant) return [];
+
+  return assistant.parts.flatMap((part) => {
+    if (part.type !== "data-progress") return [];
+    const parsed = investigationProgressSchema.safeParse(part.data);
+    return parsed.success ? [parsed.data] : [];
+  });
+}
+
+function Conversation({ messages, progress, error }: Readonly<{
+  messages: readonly DeployLensMessage[];
+  progress: readonly InvestigationProgress[];
+  error: Error | undefined;
+}>) {
   return (
     <ol aria-live="polite" className="conversation">
-      <li className="message message-user">
-        <span>You</span>
-        <p>{question}</p>
-      </li>
-      <li className="message message-system">
-        <span>DeployLens · fixture</span>
-        <p>{incident.finding.headline}</p>
-      </li>
+      {messages.length === 0 ? (
+        <li className="message message-system">
+          <span>DeployLens</span>
+          <p>Ready to investigate the seeded checkout incident.</p>
+        </li>
+      ) : null}
+      {messages.map((message) => message.parts.map((part, index) => part.type === "text" ? (
+        <li className={`message message-${message.role === "user" ? "user" : "system"}`} key={`${message.id}-${index}`}>
+          <span>{message.role === "user" ? "You" : "DeployLens"}</span>
+          <p>{part.text}</p>
+        </li>
+      ) : null))}
+      {progress.length > 0 ? (
+        <li className="message message-system progress-message">
+          <span>Analysis progress</span>
+          <ul className="progress-list">
+            {progress.map(({ label, status }) => (
+              <li key={label}>
+                <span aria-hidden="true">
+                  {status === "complete" ? "✓" : status === "failed" ? "×" : "·"}
+                </span>
+                {label}
+              </li>
+            ))}
+          </ul>
+        </li>
+      ) : null}
+      {error ? (
+        <li className="composer-error" role="alert">
+          The investigation could not complete. Check the Trigger.dev and ClickHouse configuration.
+        </li>
+      ) : null}
     </ol>
   );
 }
 
-function Composer({ initialQuestion, onSubmit }: Readonly<{
+function Composer({ initialQuestion, busy, onSubmit }: Readonly<{
   initialQuestion: string;
+  busy: boolean;
   onSubmit: (question: string) => void;
 }>) {
   const [draft, setDraft] = useState(initialQuestion);
@@ -44,8 +114,8 @@ function Composer({ initialQuestion, onSubmit }: Readonly<{
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const question = draft.trim();
-    if (!supportsFixtureQuestion(question, initialQuestion)) {
-      setError("Layer 2 supports the seeded checkout question only.");
+    if (!question) {
+      setError("Enter a question about checkout conversion.");
       return;
     }
     setError(null);
@@ -58,6 +128,7 @@ function Composer({ initialQuestion, onSubmit }: Readonly<{
       <textarea
         aria-describedby={`question-help${error ? " question-error" : ""}`}
         aria-invalid={error !== null}
+        disabled={busy}
         id="incident-question"
         maxLength={500}
         onChange={(event) => {
@@ -68,9 +139,11 @@ function Composer({ initialQuestion, onSubmit }: Readonly<{
         rows={3}
         value={draft}
       />
-      <p className="composer-help" id="question-help">Fixture mode accepts one deterministic prompt.</p>
+      <p className="composer-help" id="question-help">Runs the seeded checkout investigation.</p>
       {error ? <p className="composer-error" id="question-error" role="alert">{error}</p> : null}
-      <button className="primary-button" type="submit">Run fixture</button>
+      <button className="primary-button" disabled={busy} type="submit">
+        {busy ? "Investigating…" : "Investigate"}
+      </button>
     </form>
   );
 }
@@ -146,10 +219,11 @@ function ViewControls({ incident, selectedViewId, onSelect }: Readonly<{
   );
 }
 
-function IncidentEvidence({ incident, selectedViewId, onSelect }: Readonly<{
+function IncidentEvidence({ incident, selectedViewId, onSelect, preview }: Readonly<{
   incident: IncidentResult;
   selectedViewId: string;
   onSelect: (viewId: string) => void;
+  preview: boolean;
 }>) {
   const view = incident.views.find(({ id }) => id === selectedViewId)
     ?? incident.views.find(({ id }) => id === incident.defaultViewId)!;
@@ -158,7 +232,9 @@ function IncidentEvidence({ incident, selectedViewId, onSelect }: Readonly<{
     <section aria-labelledby="finding-title" className="evidence-pane">
       <header className="evidence-header">
         <div>
-          <p className="eyebrow">Incident {incident.incidentId}</p>
+          <p className="eyebrow">
+            {preview ? "Fixture preview" : "Live incident"} · {incident.incidentId}
+          </p>
           <h2 id="finding-title">{incident.finding.headline}</h2>
         </div>
         <span className="confidence">{incident.finding.confidence} confidence</span>
@@ -178,13 +254,57 @@ function IncidentEvidence({ incident, selectedViewId, onSelect }: Readonly<{
   );
 }
 
-export function InvestigationWorkspace({ incident }: Readonly<{ incident: IncidentResult }>) {
-  const [question, setQuestion] = useState(incident.question);
-  const [selectedViewId, setSelectedViewId] = useState(incident.defaultViewId);
+function EvidenceStatus({ busy, failed }: Readonly<{ busy: boolean; failed: boolean }>) {
+  const title = failed
+    ? "No live incident result was produced"
+    : busy
+      ? "Building the incident evidence"
+      : "Waiting for a validated incident result";
 
-  function runFixture(nextQuestion: string) {
-    setQuestion(nextQuestion);
-    setSelectedViewId(incident.defaultViewId);
+  return (
+    <section aria-live="polite" className="evidence-pane evidence-status">
+      <p className="eyebrow">Live evidence</p>
+      <h2>{title}</h2>
+      <p>{failed
+        ? "The fixture preview was removed so stale evidence is not presented as a completed analysis."
+        : "The card will appear only after the streamed tool output passes validation."}</p>
+    </section>
+  );
+}
+
+type InvestigationWorkspaceProps = Readonly<{
+  incident: IncidentResult;
+  chatId: string;
+  mintAccessTokenAction: () => Promise<ChatAccessToken>;
+  startSessionAction: () => Promise<StartChatSessionResult>;
+}>;
+
+export function InvestigationWorkspace({
+  incident,
+  chatId,
+  mintAccessTokenAction,
+  startSessionAction,
+}: InvestigationWorkspaceProps) {
+  const [selectedViewId, setSelectedViewId] = useState(incident.defaultViewId);
+  const transport = useTriggerChatTransport<typeof deploylensAgent>({
+    task: "deploylens-agent",
+    accessToken: () => mintAccessTokenAction(),
+    startSession: () => startSessionAction(),
+  });
+  const { messages, sendMessage, status, error } = useChat<DeployLensMessage>({
+    id: chatId,
+    transport,
+  });
+  const streamedIncident = incidentFromMessages(messages);
+  const currentIncident = streamedIncident ?? (messages.length === 0 ? incident : undefined);
+  const progress = progressFromMessages(messages);
+  const busy = status === "submitted" || status === "streaming";
+  const activeViewId = currentIncident?.views.some(({ id }) => id === selectedViewId)
+    ? selectedViewId
+    : currentIncident?.defaultViewId;
+
+  function investigate(question: string) {
+    void sendMessage({ text: question });
   }
 
   return (
@@ -195,10 +315,19 @@ export function InvestigationWorkspace({ incident }: Readonly<{ incident: Incide
           <h1 id="conversation-title">Checkout conversion</h1>
           <p>Ask one question. The evidence stays linked as you narrow the incident.</p>
         </div>
-        <Conversation incident={incident} question={question} />
-        <Composer initialQuestion={incident.question} onSubmit={runFixture} />
+        <Conversation error={error} messages={messages} progress={progress} />
+        <Composer busy={busy} initialQuestion={incident.question} onSubmit={investigate} />
       </aside>
-      <IncidentEvidence incident={incident} onSelect={setSelectedViewId} selectedViewId={selectedViewId} />
+      {currentIncident && activeViewId ? (
+        <IncidentEvidence
+          incident={currentIncident}
+          onSelect={setSelectedViewId}
+          preview={!streamedIncident}
+          selectedViewId={activeViewId}
+        />
+      ) : (
+        <EvidenceStatus busy={busy} failed={Boolean(error)} />
+      )}
     </div>
   );
 }

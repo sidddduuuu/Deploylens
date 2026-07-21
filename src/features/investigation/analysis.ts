@@ -3,9 +3,11 @@ import { z } from "zod";
 
 import {
   funnelSchema,
+  incidentResultSchema,
   segmentSchema,
   timelineSchema,
   timeRangeSchema,
+  type IncidentResult,
   type Segment,
 } from "./schema.ts";
 
@@ -13,7 +15,7 @@ const versions = ["1.8.2", "1.8.3"] as const;
 const regions = ["AP-South", "EU-Central", "EU-West", "US-East"] as const;
 const devices = ["desktop", "mobile", "tablet"] as const;
 
-const analysisParamsSchema = z
+export const analysisParamsSchema = z
   .object({
     service: z.string().trim().min(1).max(100),
     baseline: timeRangeSchema,
@@ -217,6 +219,8 @@ const childAnalysesSchema = z
       }
     });
   });
+
+type ChildAnalyses = z.infer<typeof childAnalysesSchema>;
 
 const scopeShape = {
   scope_mask: z.union([z.literal(0), z.literal(7)]),
@@ -633,5 +637,80 @@ export function selectRootCause(input: unknown) {
     throw new Error("analysis does not support deployment attribution");
   }
 
-  return { segment: candidate, deployment };
+  return { segment: candidate, deployment, rollback };
+}
+
+function incidentViews(analyses: ChildAnalyses, service: string) {
+  const funnelViews = new Map(analyses.funnel.views.map((view) => [view.id, view]));
+
+  return analyses.baseline.views.map((timelineView) => {
+    const funnelView = funnelViews.get(timelineView.id)!;
+    return {
+      id: timelineView.id,
+      label: timelineView.segment
+        ? [timelineView.segment.version, timelineView.segment.region, timelineView.segment.device].join(" / ")
+        : `All ${service} traffic`,
+      filter: timelineView.segment ?? {},
+      timeline: [...timelineView.baseline, ...timelineView.incident, ...timelineView.recovery],
+      funnel: { baseline: funnelView.baseline, incident: funnelView.incident },
+    };
+  });
+}
+
+function incidentSegments(analyses: ChildAnalyses) {
+  return analyses.segments.map((analysis) => ({
+    id: analysis.id,
+    segment: analysis.segment,
+    viewId: analysis.viewId,
+    sessions: analysis.sessions,
+    baselineConversionRate: analysis.baselineConversionRate,
+    incidentConversionRate: analysis.incidentConversionRate,
+    conversionRelativeChangePct: analysis.conversionRelativeChangePct,
+    checkoutFailureRelativeChangePct: analysis.checkoutFailureRelativeChangePct,
+  }));
+}
+
+export function buildIncidentResult(
+  input: unknown,
+  context: Readonly<{ question: string; service: string; generatedAt: string }>,
+): IncidentResult {
+  const analyses = childAnalysesSchema.parse(input);
+  const { segment, deployment, rollback } = selectRootCause(analyses);
+  const incidentAt = analyses.baseline.windows.incident.from;
+  const date = incidentAt.slice(0, 10);
+  const time = incidentAt.slice(11, 16).replace(":", "");
+
+  return incidentResultSchema.parse({
+    schemaVersion: 1,
+    incidentId: `${context.service}-${date}-${time}`,
+    question: context.question,
+    service: context.service,
+    generatedAt: context.generatedAt,
+    timezone: "UTC",
+    windows: {
+      baseline: analyses.baseline.windows.baseline,
+      incident: analyses.baseline.windows.incident,
+    },
+    finding: {
+      headline: `Release ${deployment.version} caused a ${Math.round(segment.checkoutFailureRelativeChangePct)}% checkout failure increase for ${segment.segment.device} users in ${segment.segment.region}.`,
+      confidence: "high",
+      cause: {
+        kind: "deployment",
+        version: deployment.version,
+        commitSha: deployment.commitSha,
+        deployedAt: deployment.at,
+      },
+      affectedSegment: segment.segment,
+      conversionRelativeChangePct: segment.conversionRelativeChangePct,
+      checkoutFailureRelativeChangePct: segment.checkoutFailureRelativeChangePct,
+    },
+    markers: [
+      { kind: "deployment", at: deployment.at, label: `Deploy ${deployment.version}` },
+      { kind: "incident_start", at: incidentAt, label: "Incident starts" },
+      { kind: "rollback", at: rollback.at, label: `Rollback to ${rollback.version}` },
+    ],
+    defaultViewId: "all",
+    views: incidentViews(analyses, context.service),
+    segments: incidentSegments(analyses),
+  });
 }

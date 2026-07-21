@@ -3,6 +3,7 @@ import test from "node:test";
 import type { ClickHouseClient } from "@clickhouse/client";
 
 import {
+  buildIncidentResult,
   queryBaseline,
   queryFunnel,
   querySegments,
@@ -39,14 +40,22 @@ function purchasesFor(segment: Segment | null, period: "baseline" | "incident" |
   return isAffected(segment) && period === "incident" ? 280 : 328;
 }
 
+function minuteWindow(
+  period: "baseline" | "incident" | "recovery",
+  start: string,
+  count: number,
+) {
+  return Array.from({ length: count }, (_, minute) => [
+    period,
+    new Date(Date.parse(start) + minute * 60_000).toISOString(),
+  ] as const);
+}
+
 const timelineTimes = [
-  ["baseline", "2026-07-20T13:50:00Z"],
-  ["baseline", "2026-07-20T14:16:00Z"],
-  ["incident", "2026-07-20T14:20:00Z"],
-  ["incident", "2026-07-20T14:46:00Z"],
-  ["recovery", "2026-07-20T14:47:00Z"],
-  ["recovery", "2026-07-20T15:13:00Z"],
-] as const;
+  ...minuteWindow("baseline", "2026-07-20T13:50:00Z", 27),
+  ...minuteWindow("incident", "2026-07-20T14:20:00Z", 27),
+  ...minuteWindow("recovery", "2026-07-20T14:47:00Z", 27),
+];
 
 const timelineRows = scopes.flatMap((segment) =>
   timelineTimes.map(([period, at]) => {
@@ -130,6 +139,11 @@ test("seeded child analyses select the deployed EU-West mobile regression", asyn
   ]);
   const children = { baseline, funnel, segments: segmentAnalysis };
   const result = selectRootCause(children);
+  const incident = buildIncidentResult(children, {
+    question: "Why did checkout conversion drop around 14:20?",
+    service: "checkout",
+    generatedAt: "2026-07-20T15:00:00Z",
+  });
 
   assert.deepEqual(result.segment.segment, {
     version: "1.8.3",
@@ -139,6 +153,12 @@ test("seeded child analyses select the deployed EU-West mobile regression", asyn
   assert.equal(result.deployment.commitSha, "a1843de");
   assert.equal(result.segment.estimatedLostPurchases, 48);
   assert.ok(Math.abs(result.segment.checkoutFailureRelativeChangePct - 36.641) < 0.001);
+  assert.equal(incident.incidentId, "checkout-2026-07-20-1420");
+  assert.equal(incident.finding.cause.version, "1.8.3");
+  assert.deepEqual(incident.finding.affectedSegment, result.segment.segment);
+  assert.equal(incident.views.length, 25);
+  assert.equal(incident.segments.length, 24);
+  assert.ok(Buffer.byteLength(JSON.stringify(incident)) < 500_000);
 
   const emptyFunnel = await queryFunnel(
     seededClient(funnelRows.map((row) => ({
@@ -153,6 +173,11 @@ test("seeded child analyses select the deployed EU-West mobile regression", asyn
 
   assert.throws(() => selectRootCause({ baseline, segments: segmentAnalysis }));
   assert.throws(() => selectRootCause({ baseline, funnel, segments: segmentAnalysis.slice(1) }));
+  assert.throws(() => buildIncidentResult({ baseline, funnel }, {
+    question: "Why did checkout conversion drop around 14:20?",
+    service: "checkout",
+    generatedAt: "2026-07-20T15:00:00Z",
+  }));
 
   const contradiction = structuredClone(children);
   const contradictoryView = contradiction.funnel.views.find(({ segment }) => isAffected(segment))!;

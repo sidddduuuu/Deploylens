@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { incidentFixture } from "../src/features/investigation/fixture.ts";
-import { supportsFixtureQuestion } from "../src/features/investigation/fixture-question.ts";
 import {
   incidentResultSchema,
   type IncidentResultInput,
@@ -98,10 +97,4 @@ test("markers and deployment evidence are consistent", () => {
 
   assert.equal(incidentResultSchema.safeParse(missingRollback).success, false);
   assert.equal(incidentResultSchema.safeParse(mismatchedVersion).success, false);
-});
-
-test("fixture mode rejects unsupported questions", () => {
-  assert.equal(supportsFixtureQuestion(`  ${incidentFixture.question}  `, incidentFixture.question), true);
-  assert.equal(supportsFixtureQuestion("Why is latency high?", incidentFixture.question), false);
-  assert.equal(supportsFixtureQuestion("", incidentFixture.question), false);
 });

@@ -7,6 +7,18 @@ const rateSchema = z.number().finite().min(0).max(1);
 const countSchema = z.number().int().nonnegative();
 const percentageSchema = z.number().finite();
 
+export const investigationProgressSchema = z
+  .object({
+    label: z.enum([
+      "Comparing baseline",
+      "Reconstructing funnel",
+      "Scanning 24 segments",
+      "Rendering incident",
+    ]),
+    status: z.enum(["running", "complete", "failed"]),
+  })
+  .strict();
+
 export const timeRangeSchema = z
   .object({
     from: timestampSchema,
@@ -234,4 +246,5 @@ type DeepReadonly<Value> = Value extends readonly (infer Item)[]
 
 export type IncidentResult = DeepReadonly<z.infer<typeof incidentResultSchema>>;
 export type IncidentResultInput = z.input<typeof incidentResultSchema>;
+export type InvestigationProgress = z.infer<typeof investigationProgressSchema>;
 export type Segment = DeepReadonly<z.infer<typeof segmentSchema>>;

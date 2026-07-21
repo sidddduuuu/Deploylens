@@ -190,6 +190,38 @@ textarea:focus-visible {
   color: var(--primary);
 }
 
+.progress-message {
+  margin-top: auto;
+}
+
+.progress-list {
+  display: grid;
+  gap: 0.5rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.progress-list li {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  font-size: 0.8rem;
+  gap: 0.55rem;
+}
+
+.progress-list li > span {
+  align-items: center;
+  background: var(--primary-soft);
+  border-radius: 50%;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 1.25rem;
+  justify-content: center;
+  margin: 0;
+  width: 1.25rem;
+}
+
 .composer {
   background: var(--surface-strong);
   border-top: 1px solid var(--border);
@@ -248,12 +280,31 @@ textarea:focus-visible {
   background: var(--primary-hover);
 }
 
+.primary-button:disabled,
+.composer textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
 .evidence-pane {
   align-self: start;
   margin: 0 auto;
   max-width: 78rem;
   padding: clamp(2rem, 5vw, 4.75rem);
   width: 100%;
+}
+
+.evidence-status {
+  min-height: 22rem;
+}
+
+.evidence-status h2 {
+  margin-top: 0.75rem;
+}
+
+.evidence-status > p:last-child {
+  color: var(--muted);
+  max-width: 36rem;
 }
 
 .evidence-header {

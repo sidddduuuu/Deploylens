@@ -2,7 +2,7 @@
 
 DeployLens should be built as one narrow, contract-first vertical slice rather than a general observability platform. A one-day build is realistic only while the project remains a seeded, private demo with one metric, one incident, and no authentication or conversation-history system.
 
-The architecture proposed in the README remains viable. As of July 20, 2026, Trigger.dev `chat.agent()` is generally available. Version `4.5.4` includes a relevant chat message-loss fix, but its current transitive dependency graph has audited high-severity advisories. Layer 5 must select a compatible patched release that retains that fix.
+The architecture proposed in the README remains viable. As of July 20, 2026, Trigger.dev `chat.agent()` is generally available. Layer 5 pins Trigger.dev `4.5.5` and narrow same-major dependency overrides so the installed tree retains the relevant chat fixes and passes `npm audit`; the deployment gate still requires a live session and reconnect smoke test.
 
 ```text
 Question
