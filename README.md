@@ -169,3 +169,5 @@ This repository currently contains the project definition and architecture for t
 1. Telemetry generation + ClickHouse schema/MV setup
 2. Trigger.dev incident investigation tools
 3. Next.js chat UI + interactive Incident Card
+
+See [BUILD_PLAN.md](./BUILD_PLAN.md) for the contract-first, layer-by-layer implementation plan.
