@@ -12,7 +12,9 @@ import {
   querySegments,
 } from "../features/investigation/analysis.ts";
 import {
+  classifyInvestigationQuestion,
   incidentResultSchema,
+  investigationQuestionSchema,
   type IncidentResult,
   type InvestigationProgress,
 } from "../features/investigation/schema.ts";
@@ -23,13 +25,23 @@ const checkoutAnalysisSchema = analysisParamsSchema.refine(
   "only the checkout service is supported",
 );
 
-const investigationInputSchema = z
+export const investigationInputSchema = z
   .object({
     metric: z.literal("checkout_conversion"),
-    question: z.string().trim().min(1).max(500),
+    question: investigationQuestionSchema,
+    device: z.literal("mobile").optional(),
     analysis: checkoutAnalysisSchema,
   })
-  .strict();
+  .strict()
+  .superRefine(({ device, question }, context) => {
+    if (device !== classifyInvestigationQuestion(question)?.device) {
+      context.addIssue({
+        code: "custom",
+        message: "device must match the supported investigation request",
+        path: ["device"],
+      });
+    }
+  });
 
 export const baselineTask = schemaTask({
   id: "deploylens-baseline",
@@ -96,7 +108,7 @@ export const investigateIncidentTask = schemaTask<
   id: "investigate-incident",
   description: "Investigate the seeded checkout conversion incident with deterministic evidence.",
   schema: investigationInputSchema,
-  run: async ({ analysis, question }) => {
+  run: async ({ analysis, device, question }) => {
     const toolCallId = ai.toolCallId() ?? "investigation";
     await writeProgress(toolCallId, analysisStarted);
 
@@ -128,6 +140,7 @@ export const investigateIncidentTask = schemaTask<
         question,
         service: analysis.service,
         generatedAt: new Date().toISOString(),
+        ...(device ? { device } : {}),
       });
       await writeProgress(toolCallId, [
         { key: "render", label: "Rendering incident", status: "complete" },
@@ -165,20 +178,41 @@ export type DeployLensUIMessage = UIMessage<
   InferUITools<typeof deploylensTools>
 >;
 
+function latestUserText(messages: readonly { role: string; content: unknown }[]) {
+  const content = messages.findLast(({ role }) => role === "user")?.content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content.flatMap((part) =>
+    part && typeof part === "object" && "type" in part && part.type === "text" && "text" in part && typeof part.text === "string"
+      ? [part.text]
+      : [],
+  ).join("\n");
+}
+
+export function publicInvestigationError() {
+  return "The investigation failed before a validated result was produced. Please retry.";
+}
+
 export const deploylensAgent = chat.withUIMessage<DeployLensUIMessage>().agent({
   id: "deploylens-agent",
   tools: deploylensTools,
-  run: async ({ messages, tools, signal }) => streamText({
-    ...chat.toStreamTextOptions({ tools }),
-    model: anthropic("claude-sonnet-4-5"),
-    system: `You are DeployLens. For the seeded checkout incident, call investigateIncident once using checkout_conversion, service checkout, baseline 2026-07-20T13:50:00Z–2026-07-20T14:17:00Z, and incident 2026-07-20T14:20:00Z–2026-07-20T14:47:00Z. Copy the user's question exactly. Never invent evidence. After the tool returns, state its conclusion in no more than two sentences.`,
-    messages,
-    abortSignal: signal,
-    prepareStep: ({ stepNumber }) => ({
-      toolChoice: stepNumber === 0
-        ? { type: "tool", toolName: "investigateIncident" }
-        : "none",
-    }),
-    stopWhen: stepCountIs(2),
-  }),
+  uiMessageStreamOptions: { onError: publicInvestigationError },
+  run: async ({ messages, tools, signal }) => {
+    const intent = classifyInvestigationQuestion(latestUserText(messages));
+    const instruction = intent
+      ? `Call investigateIncident exactly once using checkout_conversion, service checkout, baseline 2026-07-20T13:50:00Z–2026-07-20T14:17:00Z, and incident 2026-07-20T14:20:00Z–2026-07-20T14:47:00Z. ${intent.device ? "Set device to mobile." : "Do not set device."} Copy the user's latest question exactly. Never invent evidence. After the tool returns, state its conclusion in no more than two sentences.`
+      : "This demo only supports the seeded checkout-conversion incident and the follow-up 'Show only mobile traffic'. Say that in one sentence and do not make an incident claim.";
+
+    return streamText({
+      ...chat.toStreamTextOptions({ tools }),
+      model: anthropic("claude-sonnet-4-5"),
+      system: `You are DeployLens. ${instruction}`,
+      messages,
+      abortSignal: signal,
+      prepareStep: ({ stepNumber }) => intent && stepNumber === 0
+        ? { toolChoice: { type: "tool", toolName: "investigateIncident" } }
+        : { activeTools: [], toolChoice: "none" },
+      stopWhen: stepCountIs(intent ? 2 : 1),
+    });
+  },
 });

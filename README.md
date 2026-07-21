@@ -164,15 +164,16 @@ A follow-up message like **“Show only mobile traffic”** should update the sa
 
 ## Project Status
 
-Layers 1–6 of the vertical slice are implemented:
+Layers 1–7 of the vertical slice are implemented:
 
 - a validated `IncidentResult` contract and fixture-backed evidence surface,
 - deterministic ClickHouse schema, seed data, queries, and root-cause ranking,
 - Trigger.dev child-task orchestration with streamed progress,
 - a durable Trigger.dev chat transport with scoped session tokens,
-- a native SVG timeline, CSS funnel comparison, and linked 24-cell segment heatmap.
+- a native SVG timeline, CSS funnel comparison, and linked 24-cell segment heatmap,
+- same-session mobile follow-up refinement and actionable inline failures.
 
-Follow-up refinement, controlled failures, and deployment verification remain in Layers 7–8. This is still a private seeded demo; add authentication and rate limiting before exposing the session actions publicly.
+Deployment and browser verification remain in Layer 8. The credentialed proof is implemented but stays opt-in until the service credentials are configured. This is still a private seeded demo; add authentication and rate limiting before exposing the session actions publicly.
 
 ## Local development
 
@@ -183,5 +184,15 @@ npm install
 npm run dev
 npx trigger.dev@4.5.5 dev
 ```
+
+## Credentialed end-to-end proof
+
+With the seeded ClickHouse database and Trigger.dev worker running (or deployed), put `TRIGGER_SECRET_KEY` in `.env.local`; the worker also needs the ClickHouse and Anthropic credentials from `.env.example`. Then run:
+
+```sh
+npm run test:e2e
+```
+
+The proof uses one real Trigger.dev chat session for the canonical question and the mobile follow-up, and validates streamed progress plus both structured incident results. The regular `npm test` command skips this live proof so credential-free CI remains deterministic.
 
 See [BUILD_PLAN.md](./BUILD_PLAN.md) for the contract-first, layer-by-layer implementation plan.

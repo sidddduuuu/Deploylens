@@ -14,6 +14,11 @@ import {
 const versions = ["1.8.2", "1.8.3"] as const;
 const regions = ["AP-South", "EU-Central", "EU-West", "US-East"] as const;
 const devices = ["desktop", "mobile", "tablet"] as const;
+const deviceFilterSchema = z.object({ device: z.enum(devices) }).strict();
+const analysisFilterSchema = z.union([segmentSchema, deviceFilterSchema, z.null()]);
+
+type AnalysisFilter = z.infer<typeof analysisFilterSchema>;
+type Device = typeof devices[number];
 
 export const analysisParamsSchema = z
   .object({
@@ -54,7 +59,7 @@ const deploymentSchema = z
 const timelineViewSchema = z
   .object({
     id: z.string().trim().min(1),
-    segment: segmentSchema.nullable(),
+    filter: analysisFilterSchema,
     baseline: timelineSchema,
     incident: timelineSchema,
     recovery: timelineSchema,
@@ -64,7 +69,7 @@ const timelineViewSchema = z
 const funnelViewSchema = z
   .object({
     id: z.string().trim().min(1),
-    segment: segmentSchema.nullable(),
+    filter: analysisFilterSchema,
     baseline: funnelSchema,
     incident: funnelSchema,
   })
@@ -74,32 +79,43 @@ function segmentId(segment: Segment) {
   return [segment.version, segment.region, segment.device].join("-");
 }
 
-function viewId(segment: Segment | null) {
-  return segment ? `view-${segmentId(segment)}` : "all";
+function isSegmentFilter(filter: AnalysisFilter): filter is Segment {
+  return filter !== null && "version" in filter;
+}
+
+function viewId(filter: AnalysisFilter) {
+  if (!filter) return "all";
+  return isSegmentFilter(filter) ? `view-${segmentId(filter)}` : `device-${filter.device}`;
 }
 
 function validateViewSet(
-  views: readonly { id: string; segment: Segment | null }[],
+  views: readonly { id: string; filter: AnalysisFilter }[],
   context: z.RefinementCtx,
 ) {
   const ids = views.map(({ id }) => id);
-  const segments = views.flatMap(({ segment }) => segment ? [segmentId(segment)] : []);
+  const segments = views.flatMap(({ filter }) => isSegmentFilter(filter) ? [segmentId(filter)] : []);
+  const deviceFilters = views.flatMap(({ filter }) =>
+    filter && !isSegmentFilter(filter) ? [filter.device] : []
+  );
 
-  if (new Set(ids).size !== 25 || !ids.includes("all")) {
-    context.addIssue({ code: "custom", message: "analysis must contain all 25 views" });
+  if (new Set(ids).size !== 28 || !ids.includes("all")) {
+    context.addIssue({ code: "custom", message: "analysis must contain all 28 views" });
   }
   if (new Set(segments).size !== 24) {
     context.addIssue({ code: "custom", message: "analysis must contain 24 unique segment views" });
   }
-  views.forEach(({ id, segment }, index) => {
-    if (id !== viewId(segment)) {
-      context.addIssue({ code: "custom", message: "view ID must match its segment", path: [index, "id"] });
+  if (new Set(deviceFilters).size !== 3) {
+    context.addIssue({ code: "custom", message: "analysis must contain 3 unique device views" });
+  }
+  views.forEach(({ id, filter }, index) => {
+    if (id !== viewId(filter)) {
+      context.addIssue({ code: "custom", message: "view ID must match its filter", path: [index, "id"] });
     }
   });
 }
 
-const timelineViewsSchema = z.array(timelineViewSchema).length(25).superRefine(validateViewSet);
-const funnelViewsSchema = z.array(funnelViewSchema).length(25).superRefine(validateViewSet);
+const timelineViewsSchema = z.array(timelineViewSchema).length(28).superRefine(validateViewSet);
+const funnelViewsSchema = z.array(funnelViewSchema).length(28).superRefine(validateViewSet);
 
 const baselineAnalysisSchema = z
   .object({
@@ -191,14 +207,20 @@ const childAnalysesSchema = z
     if (segments.some(({ viewId: resultViewId }) => !timelineIds.has(resultViewId))) {
       context.addIssue({ code: "custom", message: "every segment must reference a precomputed view" });
     }
-    const aggregateTimeline = baseline.views.find(({ id }) => id === "all")!;
-    const aggregateFunnel = funnel.views.find(({ id }) => id === "all")!;
-    if (
-      Math.abs(timelineConversion(aggregateTimeline.baseline) - funnelConversion(aggregateFunnel.baseline).rate) > 0.001 ||
-      Math.abs(timelineConversion(aggregateTimeline.incident) - funnelConversion(aggregateFunnel.incident).rate) > 0.001
-    ) {
-      context.addIssue({ code: "custom", message: "aggregate timeline and funnel evidence must agree" });
-    }
+    baseline.views.forEach((timelineView, index) => {
+      const funnelView = funnel.views.find(({ id }) => id === timelineView.id);
+      if (!funnelView) return;
+      if (
+        Math.abs(timelineConversion(timelineView.baseline) - funnelConversion(funnelView.baseline).rate) > 0.001 ||
+        Math.abs(timelineConversion(timelineView.incident) - funnelConversion(funnelView.incident).rate) > 0.001
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: "timeline and funnel evidence must agree",
+          path: ["baseline", "views", index],
+        });
+      }
+    });
     segments.forEach((segment, index) => {
       const view = funnel.views.find(({ id }) => id === segment.viewId);
       if (!view) return;
@@ -223,18 +245,22 @@ const childAnalysesSchema = z
 type ChildAnalyses = z.infer<typeof childAnalysesSchema>;
 
 const scopeShape = {
-  scope_mask: z.union([z.literal(0), z.literal(7)]),
+  scope_mask: z.union([z.literal(0), z.literal(6), z.literal(7)]),
   result_version: z.enum(versions).nullable(),
   result_region: z.enum(regions).nullable(),
   result_device: z.enum(devices).nullable(),
 };
 
 function validateScope(
-  row: { scope_mask: 0 | 7; result_version: string | null; result_region: string | null; result_device: string | null },
+  row: { scope_mask: 0 | 6 | 7; result_version: string | null; result_region: string | null; result_device: string | null },
   context: z.RefinementCtx,
 ) {
-  const values = [row.result_version, row.result_region, row.result_device];
-  if (row.scope_mask === 7 ? values.some((value) => value !== null) : values.some((value) => value === null)) {
+  const valid = row.scope_mask === 7
+    ? row.result_version === null && row.result_region === null && row.result_device === null
+    : row.scope_mask === 6
+      ? row.result_version === null && row.result_region === null && row.result_device !== null
+      : row.result_version !== null && row.result_region !== null && row.result_device !== null;
+  if (!valid) {
     context.addIssue({ code: "custom", message: "query scope columns are inconsistent" });
   }
 }
@@ -309,8 +335,8 @@ SELECT
     ) AS period,
     formatDateTime(minute, '%FT%TZ', 'UTC') AS at,
     toUInt8(grouping(version, region, device)) AS scope_mask,
-    if(scope_mask = 7, CAST(NULL AS Nullable(String)), version) AS result_version,
-    if(scope_mask = 7, CAST(NULL AS Nullable(String)), region) AS result_region,
+    if(scope_mask IN (6, 7), CAST(NULL AS Nullable(String)), version) AS result_version,
+    if(scope_mask IN (6, 7), CAST(NULL AS Nullable(String)), region) AS result_region,
     if(scope_mask = 7, CAST(NULL AS Nullable(String)), device) AS result_device,
     toUInt32(uniqExactMerge(sessions)) AS session_count,
     toUInt32(sumMerge(checkout_starts)) AS checkout_count,
@@ -326,6 +352,7 @@ WHERE service = {service:String}
 GROUP BY GROUPING SETS
 (
     (period, minute),
+    (period, minute, device),
     (period, minute, version, region, device)
 )
 ORDER BY at, scope_mask DESC, result_version, result_region, result_device`;
@@ -346,8 +373,8 @@ const funnelQuery = `
 SELECT
     period,
     toUInt8(grouping(version, region, device)) AS scope_mask,
-    if(scope_mask = 7, CAST(NULL AS Nullable(String)), version) AS result_version,
-    if(scope_mask = 7, CAST(NULL AS Nullable(String)), region) AS result_region,
+    if(scope_mask IN (6, 7), CAST(NULL AS Nullable(String)), version) AS result_version,
+    if(scope_mask IN (6, 7), CAST(NULL AS Nullable(String)), region) AS result_region,
     if(scope_mask = 7, CAST(NULL AS Nullable(String)), device) AS result_device,
     toUInt32(countIf(level >= 1)) AS cart,
     toUInt32(countIf(level >= 2)) AS checkout_started,
@@ -379,6 +406,7 @@ FROM
 GROUP BY GROUPING SETS
 (
     (period),
+    (period, device),
     (period, version, region, device)
 )
 ORDER BY period, scope_mask DESC, result_version, result_region, result_device`;
@@ -476,6 +504,7 @@ async function queryRows<Output>(
 
 function scopeFromRow(row: z.infer<typeof timelineRowSchema> | z.infer<typeof funnelRowSchema>) {
   if (row.scope_mask === 7) return null;
+  if (row.scope_mask === 6) return deviceFilterSchema.parse({ device: row.result_device });
   return segmentSchema.parse({
     version: row.result_version,
     region: row.result_region,
@@ -486,16 +515,16 @@ function scopeFromRow(row: z.infer<typeof timelineRowSchema> | z.infer<typeof fu
 function buildTimelineViews(rows: readonly z.infer<typeof timelineRowSchema>[]) {
   const views = new Map<string, {
     id: string;
-    segment: Segment | null;
+    filter: AnalysisFilter;
     baseline: TimelinePoint[];
     incident: TimelinePoint[];
     recovery: TimelinePoint[];
   }>();
 
   for (const row of rows) {
-    const segment = scopeFromRow(row);
-    const id = viewId(segment);
-    const view = views.get(id) ?? { id, segment, baseline: [], incident: [], recovery: [] };
+    const filter = scopeFromRow(row);
+    const id = viewId(filter);
+    const view = views.get(id) ?? { id, filter, baseline: [], incident: [], recovery: [] };
     view[row.period].push({
       at: row.at,
       sessions: row.session_count,
@@ -532,15 +561,15 @@ function buildFunnel(row: z.infer<typeof funnelRowSchema>): Funnel {
 function buildFunnelViews(rows: readonly z.infer<typeof funnelRowSchema>[]) {
   const views = new Map<string, {
     id: string;
-    segment: Segment | null;
+    filter: AnalysisFilter;
     baseline?: Funnel;
     incident?: Funnel;
   }>();
 
   for (const row of rows) {
-    const segment = scopeFromRow(row);
-    const id = viewId(segment);
-    const view = views.get(id) ?? { id, segment };
+    const filter = scopeFromRow(row);
+    const id = viewId(filter);
+    const view = views.get(id) ?? { id, filter };
     view[row.period] = buildFunnel(row);
     views.set(id, view);
   }
@@ -647,10 +676,12 @@ function incidentViews(analyses: ChildAnalyses, service: string) {
     const funnelView = funnelViews.get(timelineView.id)!;
     return {
       id: timelineView.id,
-      label: timelineView.segment
-        ? [timelineView.segment.version, timelineView.segment.region, timelineView.segment.device].join(" / ")
-        : `All ${service} traffic`,
-      filter: timelineView.segment ?? {},
+      label: isSegmentFilter(timelineView.filter)
+        ? [timelineView.filter.version, timelineView.filter.region, timelineView.filter.device].join(" / ")
+        : timelineView.filter
+          ? `All ${timelineView.filter.device} ${service} traffic`
+          : `All ${service} traffic`,
+      filter: timelineView.filter ?? {},
       timeline: [...timelineView.baseline, ...timelineView.incident, ...timelineView.recovery],
       funnel: { baseline: funnelView.baseline, incident: funnelView.incident },
     };
@@ -672,7 +703,7 @@ function incidentSegments(analyses: ChildAnalyses) {
 
 export function buildIncidentResult(
   input: unknown,
-  context: Readonly<{ question: string; service: string; generatedAt: string }>,
+  context: Readonly<{ question: string; service: string; generatedAt: string; device?: Device }>,
 ): IncidentResult {
   const analyses = childAnalysesSchema.parse(input);
   const { segment, deployment, rollback } = selectRootCause(analyses);
@@ -709,7 +740,7 @@ export function buildIncidentResult(
       { kind: "incident_start", at: incidentAt, label: "Incident starts" },
       { kind: "rollback", at: rollback.at, label: `Rollback to ${rollback.version}` },
     ],
-    defaultViewId: "all",
+    defaultViewId: context.device ? viewId({ device: context.device }) : "all",
     views: incidentViews(analyses, context.service),
     segments: incidentSegments(analyses),
   });

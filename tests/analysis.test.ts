@@ -14,30 +14,46 @@ import type { Segment } from "../src/features/investigation/schema.ts";
 const versions = ["1.8.2", "1.8.3"] as const;
 const regions = ["AP-South", "EU-Central", "EU-West", "US-East"] as const;
 const devices = ["desktop", "mobile", "tablet"] as const;
+type Device = typeof devices[number];
+type Scope = Segment | { device: Device } | null;
 
 const segments = versions.flatMap((version) =>
   regions.flatMap((region) =>
     devices.map((device) => ({ version, region, device } satisfies Segment)),
   ),
 );
-const scopes: (Segment | null)[] = [null, ...segments];
+const scopes: Scope[] = [null, ...devices.map((device) => ({ device })), ...segments];
 
-function isAffected(segment: Segment | null) {
-  return segment?.version === "1.8.3" && segment.region === "EU-West" && segment.device === "mobile";
+function isAffected(scope: Scope) {
+  return scope !== null && "version" in scope &&
+    scope.version === "1.8.3" && scope.region === "EU-West" && scope.device === "mobile";
 }
 
-function scopeColumns(segment: Segment | null) {
+function scopeColumns(scope: Scope) {
+  if (!scope) {
+    return { scope_mask: 7, result_version: null, result_region: null, result_device: null };
+  }
+  if (!("version" in scope)) {
+    return { scope_mask: 6, result_version: null, result_region: null, result_device: scope.device };
+  }
   return {
-    scope_mask: segment ? 0 : 7,
-    result_version: segment?.version ?? null,
-    result_region: segment?.region ?? null,
-    result_device: segment?.device ?? null,
+    scope_mask: 0,
+    result_version: scope.version,
+    result_region: scope.region,
+    result_device: scope.device,
   };
 }
 
-function purchasesFor(segment: Segment | null, period: "baseline" | "incident" | "recovery") {
-  if (!segment) return period === "incident" ? 328 * 24 - 48 : 328 * 24;
-  return isAffected(segment) && period === "incident" ? 280 : 328;
+function scopeSize(scope: Scope) {
+  return !scope ? segments.length : "version" in scope ? 1 : versions.length * regions.length;
+}
+
+function includesAffected(scope: Scope) {
+  return !scope || (!("version" in scope) ? scope.device === "mobile" : isAffected(scope));
+}
+
+function purchasesFor(scope: Scope, period: "baseline" | "incident" | "recovery") {
+  return 328 * scopeSize(scope) - (period === "incident" && includesAffected(scope) ? 48 : 0);
 }
 
 function minuteWindow(
@@ -57,13 +73,13 @@ const timelineTimes = [
   ...minuteWindow("recovery", "2026-07-20T14:47:00Z", 27),
 ];
 
-const timelineRows = scopes.flatMap((segment) =>
+const timelineRows = scopes.flatMap((scope) =>
   timelineTimes.map(([period, at]) => {
-    const degraded = isAffected(segment) && period === "incident";
-    const checkoutCount = segment ? 459 : 459 * 24;
-    const purchaseCount = purchasesFor(segment, period);
+    const degraded = includesAffected(scope) && period === "incident";
+    const checkoutCount = 459 * scopeSize(scope);
+    const purchaseCount = purchasesFor(scope, period);
     return {
-      ...scopeColumns(segment),
+      ...scopeColumns(scope),
       period,
       at,
       session_count: checkoutCount,
@@ -75,16 +91,16 @@ const timelineRows = scopes.flatMap((segment) =>
   }),
 );
 
-const funnelRows = scopes.flatMap((segment) =>
+const funnelRows = scopes.flatMap((scope) =>
   (["baseline", "incident"] as const).map((period) => {
-    const starts = segment ? 459 : 459 * 24;
+    const starts = 459 * scopeSize(scope);
     return {
-      ...scopeColumns(segment),
+      ...scopeColumns(scope),
       period,
       cart: starts,
       checkout_started: starts,
       payment_submitted: starts,
-      purchase: purchasesFor(segment, period),
+      purchase: purchasesFor(scope, period),
     };
   }),
 );
@@ -156,9 +172,41 @@ test("seeded child analyses select the deployed EU-West mobile regression", asyn
   assert.equal(incident.incidentId, "checkout-2026-07-20-1420");
   assert.equal(incident.finding.cause.version, "1.8.3");
   assert.deepEqual(incident.finding.affectedSegment, result.segment.segment);
-  assert.equal(incident.views.length, 25);
+  assert.equal(incident.views.length, 28);
   assert.equal(incident.segments.length, 24);
   assert.ok(Buffer.byteLength(JSON.stringify(incident)) < 500_000);
+
+  const mobileIncident = buildIncidentResult(children, {
+    question: "Show only mobile traffic",
+    service: "checkout",
+    generatedAt: "2026-07-20T15:01:00Z",
+    device: "mobile",
+  });
+  const mobileView = mobileIncident.views.find(({ id }) => id === mobileIncident.defaultViewId)!;
+  assert.equal(mobileIncident.incidentId, incident.incidentId);
+  assert.equal(mobileIncident.defaultViewId, "device-mobile");
+  assert.equal(mobileView.label, "All mobile checkout traffic");
+  assert.deepEqual(mobileView.filter, { device: "mobile" });
+  assert.equal(mobileView.funnel.baseline[1]!.sessions, 459 * 8);
+  assert.equal(mobileView.funnel.baseline[3]!.sessions, 328 * 8);
+  assert.equal(mobileView.funnel.incident[3]!.sessions, 328 * 8 - 48);
+  assert.ok(Math.abs(
+    mobileView.timeline.find(({ at }) => at === "2026-07-20T14:20:00.000Z")!.conversionRate -
+      (328 * 8 - 48) / (459 * 8),
+  ) < 0.000001);
+
+  const contradictoryDeviceAggregate = structuredClone(children);
+  const contradictoryMobile = contradictoryDeviceAggregate.funnel.views.find(({ id }) => id === "device-mobile")!;
+  const contradictoryMobilePurchase = contradictoryMobile.incident.find(({ key }) => key === "purchase")!;
+  contradictoryMobilePurchase.sessions += 10;
+  contradictoryMobilePurchase.completionFromStart = contradictoryMobilePurchase.sessions / (459 * 8);
+  contradictoryMobilePurchase.dropoffFromPrevious = 1 - contradictoryMobilePurchase.sessions / (459 * 8);
+  assert.throws(() => buildIncidentResult(contradictoryDeviceAggregate, {
+    question: "Show only mobile traffic",
+    service: "checkout",
+    generatedAt: "2026-07-20T15:01:00Z",
+    device: "mobile",
+  }));
 
   const emptyFunnel = await queryFunnel(
     seededClient(funnelRows.map((row) => ({
@@ -180,7 +228,7 @@ test("seeded child analyses select the deployed EU-West mobile regression", asyn
   }));
 
   const contradiction = structuredClone(children);
-  const contradictoryView = contradiction.funnel.views.find(({ segment }) => isAffected(segment))!;
+  const contradictoryView = contradiction.funnel.views.find(({ filter }) => isAffected(filter))!;
   const contradictoryPurchase = contradictoryView.incident.find(({ key }) => key === "purchase")!;
   contradictoryPurchase.sessions = 328;
   contradictoryPurchase.completionFromStart = 328 / 459;
@@ -189,7 +237,7 @@ test("seeded child analyses select the deployed EU-West mobile regression", asyn
 
   const noise = structuredClone(children);
   const noisyCandidate = noise.segments.find(({ segment }) => isAffected(segment))!;
-  const noisyView = noise.funnel.views.find(({ segment }) => isAffected(segment))!;
+  const noisyView = noise.funnel.views.find(({ filter }) => isAffected(filter))!;
   const noisyPurchase = noisyView.incident.find(({ key }) => key === "purchase")!;
   noisyPurchase.sessions = 327;
   noisyPurchase.completionFromStart = 327 / 459;
