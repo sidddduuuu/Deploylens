@@ -263,7 +263,7 @@ Automated checks:
 Deployment order:
 
 1. Create ClickHouse Cloud tables and load seed data.
-2. Deploy Trigger.dev tasks with ClickHouse and model-provider secrets.
+2. Deploy Trigger.dev tasks with ClickHouse secrets.
 3. Deploy Next.js with only its required Trigger credentials.
 4. Run the canonical demo twice, including a browser refresh during execution.
 5. Rehearse the mobile follow-up and one controlled failure.

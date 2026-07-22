@@ -56,7 +56,7 @@ async function runTurn(chat: AgentChat<typeof deploylensAgent>, question: string
     .filter((chunk) => chunk.type === "text-delta")
     .map((chunk) => chunk.delta)
     .join("");
-  assert.ok(text.trim(), `${question}: expected a model response`);
+  assert.ok(text.trim(), `${question}: expected an assistant response`);
 
   return {
     incident: incidentResultSchema.parse(toolOutputs[0]!.output),
@@ -70,7 +70,7 @@ test("the deployed agent completes the canonical investigation and mobile follow
 }, async () => {
   assert.ok(
     process.env.TRIGGER_SECRET_KEY?.trim(),
-    "TRIGGER_SECRET_KEY is required; the Trigger worker must also have ClickHouse and Anthropic credentials",
+    "TRIGGER_SECRET_KEY is required; the Trigger worker must also have ClickHouse credentials",
   );
 
   const chat = new AgentChat<typeof deploylensAgent>({

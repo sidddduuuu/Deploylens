@@ -176,11 +176,11 @@ Layers 1–7 and the credential-free portion of Layer 8 are implemented:
 - Playwright coverage for linked interactions and 390px, 768px, and 1440px layouts,
 - credential-free app and ClickHouse CI gates.
 
-The fixture is only the initial, explicitly labelled preview. A submitted supported question uses the real Trigger.dev → ClickHouse → model-provider path; there is no mock chat transport or mock analytics response. The live API and browser proofs are implemented but remain opt-in until service credentials and protected hosting are configured.
+The fixture is only the initial, explicitly labelled preview. A submitted supported question uses the real Trigger.dev → ClickHouse task path; there is no mock chat transport or mock analytics response. The assistant text is derived from the validated query result, so no model-provider key is required. The live API and browser proofs remain opt-in because they require external service credentials and a running or deployed Trigger.dev worker.
 
 ## Local development
 
-Use Node.js 22. Copy `.env.example` to `.env.local` and provide the Trigger.dev project, ClickHouse, and Anthropic credentials. Apply `db/schema.sql` and then `db/seed.sql` to ClickHouse before starting the web app and Trigger.dev worker in separate terminals.
+Use Node.js 22. Copy `.env.example` to `.env.local` and provide the Trigger.dev and ClickHouse credentials. Apply `db/schema.sql` and then `db/seed.sql` to ClickHouse before starting the web app and Trigger.dev worker in separate terminals.
 
 The schema creates a dedicated `deploylens` database and the application always connects to that database. The seed is destructive inside that namespace: it truncates `deploylens.events`, `deploylens.deployments`, and `deploylens.minute_metrics`. Never run it against a shared database whose `deploylens` namespace contains unrelated data.
 
@@ -205,7 +205,7 @@ npm audit --audit-level=moderate
 
 ## Credentialed end-to-end proof
 
-With the seeded ClickHouse database and Trigger.dev worker running (or deployed), put `TRIGGER_SECRET_KEY` in `.env.local`; the worker also needs the ClickHouse and Anthropic credentials from `.env.example`. Then run:
+With the seeded ClickHouse database and Trigger.dev worker running (or deployed), put `TRIGGER_SECRET_KEY` in `.env.local`; the worker also needs the ClickHouse credentials from `.env.example`. Then run:
 
 ```sh
 npm run test:e2e
@@ -217,7 +217,7 @@ The API proof validates one real Trigger.dev session, streamed progress, and bot
 ## Credentialed deployment gate
 
 1. Provision a dedicated ClickHouse service/database and apply `db/schema.sql` then `db/seed.sql`.
-2. Configure the Trigger.dev environment with ClickHouse and Anthropic secrets, set `TRIGGER_ACCESS_TOKEN` locally, and run `npm run deploy:trigger`.
+2. Configure the Trigger.dev environment with ClickHouse secrets, set `TRIGGER_ACCESS_TOKEN` locally, and run `npm run deploy:trigger`.
 3. Deploy Next.js with `TRIGGER_SECRET_KEY` and keep the deployment access-protected.
 4. Run the canonical browser flow twice, including the refresh-during-run proof, then the mobile follow-up.
 5. Rehearse an unsupported question such as `What changed?` and confirm it returns the scoped inline error without starting a paid run.

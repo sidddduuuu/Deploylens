@@ -8,6 +8,7 @@
   "overrides": {
     "@opentelemetry/core": "2.9.0",
     "postcss": "8.5.20",
+    "sharp": "0.35.3",
     "socket.io": "4.8.3",
     "socket.io-client": "4.8.3"
   },
@@ -28,7 +29,6 @@
     "verify": "npm run check && npm run test:browser"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "3.0.98",
     "@ai-sdk/react": "3.0.233",
     "@clickhouse/client": "^1.23.1",
     "@trigger.dev/sdk": "4.5.5",
