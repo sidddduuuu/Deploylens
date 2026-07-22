@@ -16,7 +16,7 @@
     "build": "next build",
     "check": "npm run lint && npm run typecheck && npm test && npm run build",
     "deploy:trigger": "node --env-file-if-exists=.env.local --input-type=module --eval 'const { parseClickHouseConfig } = await import(\"./src/lib/clickhouse.ts\"); parseClickHouseConfig(process.env)' && npx --yes trigger.dev@4.5.5 deploy --skip-update-check --env-file .env.local",
-    "dev": "next dev",
+    "dev": "next dev --hostname 127.0.0.1",
     "dev:trigger": "node --env-file-if-exists=.env.local scripts/trigger-dev.mjs",
     "lint": "eslint .",
     "start": "next start",

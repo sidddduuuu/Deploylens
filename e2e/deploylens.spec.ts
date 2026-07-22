@@ -179,7 +179,6 @@ test("@live the deployed conversation survives refresh and refines one incident"
 
   await page.getByRole("button", { name: mobileFollowUp }).click();
   await expect(question).toHaveValue(mobileFollowUp);
-  await page.getByRole("button", { name: "Investigate" }).click();
   await expect(page.getByText("All mobile checkout traffic", { exact: true })).toBeVisible({
     timeout: 180_000,
   });

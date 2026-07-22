@@ -502,6 +502,12 @@ summary:focus-visible,
   outline: none;
 }
 
+.composer textarea:focus-visible {
+  border-radius: 0.55rem;
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
 .composer-help,
 .composer-error {
   font-size: 0.72rem;
