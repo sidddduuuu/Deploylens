@@ -45,7 +45,7 @@ export default async function WorkspacePage({ searchParams }: WorkspacePageProps
           <span aria-hidden="true">D</span>
           DeployLens
         </Link>
-        <span className="mode"><span aria-hidden="true" />Seeded incident · UTC</span>
+        <span className="mode"><span aria-hidden="true" />Guided demo · UTC</span>
       </header>
       <InvestigationWorkspace
         chatId={chatId}

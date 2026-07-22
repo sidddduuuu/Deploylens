@@ -28,6 +28,14 @@ function formatSignedPercent(value: number) {
   return `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
 }
 
+function formatUtcTime(at: string) {
+  return `${timeFormatter.format(new Date(at))} UTC`;
+}
+
+function formatUtcRange(from: string, to: string) {
+  return `${timeFormatter.format(new Date(from))}–${formatUtcTime(to)}`;
+}
+
 const countFormatter = new Intl.NumberFormat("en");
 
 function checkoutConversion(stages: IncidentView["funnel"]["baseline"]) {
@@ -81,6 +89,7 @@ function TimelineDetails({ view }: Readonly<{ view: IncidentView }>) {
       <summary>View timeline data</summary>
       <div aria-label="Scrollable timeline data" className="data-scroll" tabIndex={0}>
         <table>
+          <caption className="sr-only">{`Timeline values for ${view.label}`}</caption>
           <thead><tr><th scope="col">Time</th><th scope="col">Conversion</th><th scope="col">Errors</th><th scope="col">p95 latency</th></tr></thead>
           <tbody>{view.timeline.map((point) => (
             <tr key={point.at}>
@@ -133,7 +142,7 @@ function TimelineChart({ incident, view }: Readonly<{
 
   return (
     <section aria-labelledby="timeline-title" className="evidence-section">
-      <div className="section-heading"><h3 id="timeline-title">Incident timeline</h3><p>Conversion, errors, and latency share one UTC time axis.</p></div>
+      <div className="section-heading"><h3 id="timeline-title">Incident timeline</h3><p>Shows whether the regression follows the deploy and recovers after rollback.</p></div>
       <figure className="timeline-figure">
         <div aria-label="Scrollable incident timeline" className="chart-scroll" tabIndex={0}>
           <svg aria-labelledby="timeline-svg-title timeline-svg-description" role="img" viewBox={`0 0 ${chartWidth} 232`}>
@@ -176,9 +185,10 @@ function FunnelCell({ stage, kind }: Readonly<{
 function FunnelComparison({ view }: Readonly<{ view: IncidentView }>) {
   return (
     <section aria-labelledby="funnel-title" className="evidence-section">
-      <div className="section-heading"><h3 id="funnel-title">Checkout funnel</h3><p>Baseline and incident counts at every stage.</p></div>
+      <div className="section-heading"><h3 id="funnel-title">Checkout funnel</h3><p>Isolates which checkout stage lost users during the incident.</p></div>
       <div aria-label="Scrollable funnel comparison" className="data-scroll" tabIndex={0}>
         <table className="funnel-table">
+          <caption className="sr-only">{`Baseline and incident funnel for ${view.label}`}</caption>
           <thead><tr><th scope="col">Stage</th><th scope="col">Baseline</th><th scope="col">Incident</th></tr></thead>
           <tbody>{view.funnel.baseline.map((baseline, index) => (
             <tr key={baseline.key}>
@@ -228,7 +238,8 @@ function SegmentHeatmap({ incident, selectedViewId, onSelect }: Readonly<{
 
   return (
     <section aria-labelledby="segments-title" className="evidence-section">
-      <div className="section-heading"><h3 id="segments-title">Segment scan</h3><p>Conversion change by version, region, and device. Select a cell to update every view.</p></div>
+      <div className="section-heading"><h3 id="segments-title">Segment scan</h3><p>Finds the affected version, region, and device; selecting one updates every view.</p></div>
+      <p className="scroll-cue">Scroll horizontally to compare devices.</p>
       <div aria-label="Scrollable segment heatmap" className="data-scroll" tabIndex={0}>
         <table className="segment-table">
           <caption className="sr-only">Conversion change across all 24 scanned segments</caption>
@@ -262,9 +273,18 @@ function IncidentEvidence({ incident, selectedViewId, onSelect, preview }: Reado
   preview: boolean;
 }>) {
   const view = selectIncidentView(incident, selectedViewId);
+  const defaultView = selectIncidentView(incident, incident.defaultViewId);
+  const resetLabel = defaultView.label === "All checkout traffic"
+    ? "All traffic"
+    : defaultView.label === "All mobile checkout traffic"
+      ? "All mobile traffic"
+      : defaultView.label;
 
   return (
     <article aria-labelledby="finding-title" className="evidence-pane">
+      {preview ? (
+        <p className="preview-notice" role="note">Example result — no live investigation has run yet.</p>
+      ) : null}
       <header className="evidence-header">
         <div>
           <p className="eyebrow">
@@ -274,18 +294,42 @@ function IncidentEvidence({ incident, selectedViewId, onSelect, preview }: Reado
         </div>
         <span className="confidence">{incident.finding.confidence} confidence</span>
       </header>
+      <dl className="finding-facts">
+        <div>
+          <dt>Affected</dt>
+          <dd>{[
+            incident.finding.affectedSegment.version,
+            incident.finding.affectedSegment.region,
+            incident.finding.affectedSegment.device,
+          ].join(" / ")}</dd>
+        </div>
+        <div>
+          <dt>Deployment</dt>
+          <dd>{`Release ${incident.finding.cause.version} · ${incident.finding.cause.commitSha} · ${formatUtcTime(incident.finding.cause.deployedAt)}`}</dd>
+        </div>
+        <div>
+          <dt>Incident window</dt>
+          <dd>{formatUtcRange(incident.windows.incident.from, incident.windows.incident.to)}</dd>
+        </div>
+        <div><dt>Evidence</dt><dd>Timeline, funnel, deployment marker, and segment scan</dd></div>
+      </dl>
       <div className="evidence-toolbar">
-        <div><span>Current evidence</span><strong aria-live="polite">{view.label}</strong></div>
-        <button aria-pressed={view.id === incident.defaultViewId} className="view-reset" onClick={() => onSelect(incident.defaultViewId)} type="button">All traffic</button>
+        <div><span>Active scope</span><strong>{view.label}</strong></div>
+        <button aria-pressed={view.id === incident.defaultViewId} className="view-reset" onClick={() => onSelect(incident.defaultViewId)} type="button">{resetLabel}</button>
       </div>
+      <p aria-atomic="true" aria-label="Evidence scope update" className="sr-only" role="status">
+        {view.id === incident.defaultViewId
+          ? `Showing ${defaultView.label.toLowerCase()}.`
+          : `Filtered to ${view.label}; metrics, timeline, and funnel updated.`}
+      </p>
       <EvidenceMetrics view={view} />
       <TimelineChart incident={incident} view={view} />
       <FunnelComparison view={view} />
       <SegmentHeatmap incident={incident} onSelect={onSelect} selectedViewId={view.id} />
       <footer className="evidence-footer">
         <span>24 segments scanned</span>
-        <span>Release {incident.finding.cause.version}</span>
-        <span>Commit {incident.finding.cause.commitSha}</span>
+        <span>Schema-validated evidence</span>
+        <span>UTC</span>
       </footer>
     </article>
   );
