@@ -2,6 +2,7 @@
 !.env.example
 .next/
 .trigger/
+.vercel/
 *.tsbuildinfo
 node_modules/
 out/

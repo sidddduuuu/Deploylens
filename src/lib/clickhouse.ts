@@ -22,7 +22,10 @@ export function parseClickHouseConfig(env: Readonly<Record<string, string | unde
 export async function withClickHouse<Result>(
   run: (client: ClickHouseClient) => Promise<Result>,
 ): Promise<Result> {
-  const client = createClient(parseClickHouseConfig(process.env));
+  const client = createClient({
+    ...parseClickHouseConfig(process.env),
+    request_timeout: 60_000,
+  });
   try {
     return await run(client);
   } finally {
