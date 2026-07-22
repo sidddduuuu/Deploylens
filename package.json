@@ -17,7 +17,7 @@
     "check": "npm run lint && npm run typecheck && npm test && npm run build",
     "deploy:trigger": "npx --yes trigger.dev@4.5.5 deploy --skip-update-check --env-file .env.local",
     "dev": "next dev",
-    "dev:trigger": "npx --yes trigger.dev@4.5.5 dev start --skip-update-check --env-file .env.local",
+    "dev:trigger": "node --env-file-if-exists=.env.local scripts/trigger-dev.mjs",
     "lint": "eslint .",
     "start": "next start",
     "test": "node --test tests/*.test.ts",

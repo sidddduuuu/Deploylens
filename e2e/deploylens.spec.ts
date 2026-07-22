@@ -2,12 +2,29 @@ import { expect, test } from "@playwright/test";
 
 const canonicalQuestion = "Why did checkout conversion drop around 14:20?";
 const mobileFollowUp = "Show only mobile traffic";
-const chatUrl = /\?chat=[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const chatUrl = /\/app\?chat=[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+test("the landing page is responsive and product-backed", async ({ page }) => {
+  for (const width of [390, 768, 1440]) {
+    await page.setViewportSize({ height: 900, width });
+    await page.goto("/");
+    await expect(page.getByRole("heading", {
+      name: /Ask why the metric moved\. Get the incident, not a paragraph\./,
+    })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Investigate an incident" })).toBeVisible();
+    await expect(page.getByText(/Fixture preview · checkout-2026-07-20-1420/)).toBeVisible();
+    const overflows = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    );
+    expect(overflows).toBe(false);
+  }
+});
 
 test("the credential-free incident card is linked, responsive, and refresh-stable", async ({ page }) => {
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto("/");
+  await page.getByRole("link", { name: "Investigate an incident" }).click();
   await expect(page).toHaveURL(chatUrl);
   const investigationUrl = page.url();
 
@@ -89,7 +106,7 @@ test("@live the deployed conversation survives refresh and refines one incident"
     ).toBeTruthy();
   }
 
-  await page.goto("/");
+  await page.goto("/app");
   await expect(page).toHaveURL(chatUrl);
   const investigationUrl = page.url();
   const question = page.getByLabel("Ask about checkout");
