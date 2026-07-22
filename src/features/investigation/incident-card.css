@@ -224,6 +224,8 @@
   border-radius: inherit;
   display: block;
   height: 100%;
+  transform-origin: left center;
+  transition: width 450ms ease;
 }
 
 .funnel-baseline {

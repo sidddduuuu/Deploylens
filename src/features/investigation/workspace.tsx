@@ -6,7 +6,6 @@ import {
   type InferChatUIMessage,
 } from "@trigger.dev/sdk/chat/react";
 import type { ChatSessionPersistedState } from "@trigger.dev/sdk/chat";
-import { motion, useReducedMotion } from "framer-motion";
 import {
   BookOpen,
   LayoutDashboard,
@@ -197,14 +196,8 @@ function WorkspaceIntro({ state, reconnecting, showWorkflow }: Readonly<{
   reconnecting: boolean;
   showWorkflow: boolean;
 }>) {
-  const reduceMotion = useReducedMotion();
   return (
-    <motion.div
-      animate={{ opacity: 1, y: 0 }}
-      className="chat-heading"
-      initial={reduceMotion ? false : { opacity: 0, y: 8 }}
-      transition={{ duration: 0.35 }}
-    >
+    <div className="chat-heading">
       <p className="demo-label">Guided demo</p>
       <h1 id="conversation-title">Investigate a metric movement</h1>
       <p>For on-call engineers and service owners investigating a production KPI after an alert.</p>
@@ -226,7 +219,7 @@ function WorkspaceIntro({ state, reconnecting, showWorkflow }: Readonly<{
           </ol>
         </section>
       ) : null}
-    </motion.div>
+    </div>
   );
 }
 

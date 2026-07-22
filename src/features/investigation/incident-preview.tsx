@@ -46,7 +46,6 @@ function checkoutConversion(stages: IncidentView["funnel"]["baseline"]) {
 }
 
 function EvidenceMetrics({ view }: Readonly<{ view: IncidentView }>) {
-  const reduceMotion = useReducedMotion();
   const baselineConversion = checkoutConversion(view.funnel.baseline);
   const incidentConversion = checkoutConversion(view.funnel.incident);
   const peakLatency = Math.max(...view.timeline.map(({ p95LatencyMs }) => p95LatencyMs));
@@ -55,18 +54,12 @@ function EvidenceMetrics({ view }: Readonly<{ view: IncidentView }>) {
     : incidentConversion / baselineConversion - 1;
 
   return (
-    <motion.dl
-      animate={{ opacity: 1, y: 0 }}
-      className="metrics"
-      initial={reduceMotion ? false : { opacity: 0, y: 8 }}
-      key={view.id}
-      transition={{ duration: 0.35 }}
-    >
+    <dl className="metrics" key={view.id}>
       <div><dt>Baseline conversion</dt><dd>{formatPercent(baselineConversion)}</dd></div>
       <div><dt>Incident conversion</dt><dd>{formatPercent(incidentConversion)}</dd></div>
       <div><dt>Relative change</dt><dd className={relativeChange < 0 ? "negative" : undefined}>{formatPercent(relativeChange)}</dd></div>
       <div><dt>Peak p95 latency</dt><dd>{peakLatency.toFixed(0)} ms</dd></div>
-    </motion.dl>
+    </dl>
   );
 }
 
@@ -164,21 +157,17 @@ function TimelineChart({ incident, view }: Readonly<{
                   <text x="0" y={top + 12}>{label}</text>
                   <line x1={chartLeft} x2={chartWidth - chartRight} y1={top + laneHeight} y2={top + laneHeight} />
                   <motion.polyline
-                    animate={{ opacity: 1, pathLength: 1 }}
-                    initial={reduceMotion ? false : { opacity: 0.2, pathLength: 0 }}
+                    animate={reduceMotion ? undefined : { opacity: [0.35, 1] }}
                     points={points}
-                    transition={{ delay: index * 0.08, duration: 0.7, ease: "easeOut" }}
+                    transition={{ delay: index * 0.06, duration: 0.55, ease: "easeOut" }}
                   />
                 </g>
               );
             })}
-            {markers.map((marker, index) => (
-              <motion.line
-                animate={{ opacity: 1 }}
+            {markers.map((marker) => (
+              <line
                 className={`timeline-marker marker-${marker.kind}`}
-                initial={reduceMotion ? false : { opacity: 0 }}
                 key={`${marker.kind}-${marker.at}`}
-                transition={{ delay: 0.35 + index * 0.08, duration: 0.35 }}
                 x1={timelineX(marker.at, view.timeline)}
                 x2={timelineX(marker.at, view.timeline)}
                 y1="4"
@@ -201,16 +190,15 @@ function FunnelCell({ stage, kind }: Readonly<{
   stage: IncidentView["funnel"]["baseline"][number];
   kind: "baseline" | "incident";
 }>) {
-  const reduceMotion = useReducedMotion();
   return (
     <td>
       <span className="funnel-value"><strong>{countFormatter.format(stage.sessions)}</strong><span>{formatPercent(stage.completionFromStart)} complete · {formatPercent(stage.dropoffFromPrevious)} drop</span></span>
       <span aria-hidden="true" className="funnel-track">
         <motion.span
-          animate={{ width: `${stage.completionFromStart * 100}%` }}
           className={`funnel-fill funnel-${kind}`}
-          initial={reduceMotion ? false : { width: 0 }}
-          transition={{ duration: 0.55, ease: "easeOut" }}
+          layout
+          style={{ width: `${stage.completionFromStart * 100}%` }}
+          transition={{ duration: 0.45, ease: "easeOut" }}
         />
       </span>
     </td>
@@ -315,7 +303,6 @@ function IncidentEvidence({ incident, selectedViewId, onSelect, preview }: Reado
   onSelect: (viewId: string) => void;
   preview: boolean;
 }>) {
-  const reduceMotion = useReducedMotion();
   const view = selectIncidentView(incident, selectedViewId);
   const defaultView = selectIncidentView(incident, incident.defaultViewId);
   const resetLabel = defaultView.label === "All checkout traffic"
@@ -325,13 +312,7 @@ function IncidentEvidence({ incident, selectedViewId, onSelect, preview }: Reado
       : defaultView.label;
 
   return (
-    <motion.article
-      animate={{ opacity: 1, y: 0 }}
-      aria-labelledby="finding-title"
-      className="evidence-pane"
-      initial={reduceMotion ? false : { opacity: 0, y: 12 }}
-      transition={{ duration: 0.4, ease: "easeOut" }}
-    >
+    <article aria-labelledby="finding-title" className="evidence-pane">
       {preview ? (
         <p className="preview-notice" role="note">Example result — no live investigation has run yet.</p>
       ) : null}
@@ -381,7 +362,7 @@ function IncidentEvidence({ incident, selectedViewId, onSelect, preview }: Reado
         <span>Schema-validated evidence</span>
         <span>UTC</span>
       </footer>
-    </motion.article>
+    </article>
   );
 }
 
