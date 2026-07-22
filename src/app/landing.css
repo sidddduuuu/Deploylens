@@ -40,18 +40,23 @@
   text-decoration: none;
 }
 
-.landing-brand > span {
+.landing-brand-mark {
   align-items: center;
   background: var(--primary);
   border-radius: 0.55rem;
   color: white;
   display: inline-flex;
+  flex: 0 0 auto;
   font-family: var(--font-ui), sans-serif;
   font-size: 0.78rem;
   font-weight: 700;
   height: 1.85rem;
   justify-content: center;
   width: 1.85rem;
+}
+
+.landing-brand-text {
+  color: var(--ink);
 }
 
 .landing-nav-links {

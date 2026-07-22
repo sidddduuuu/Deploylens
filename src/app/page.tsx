@@ -56,8 +56,8 @@ export default function LandingPage() {
       <header className="landing-site-header">
         <div className="landing-nav landing-container">
           <Link aria-label="DeployLens home" className="landing-brand" href="/">
-            <span aria-hidden="true">D</span>
-            DeployLens
+            <span aria-hidden="true" className="landing-brand-mark">D</span>
+            <span className="landing-brand-text">DeployLens</span>
           </Link>
           <nav aria-label="Primary navigation" className="landing-nav-links">
             <a href="#how-it-works">How it works</a>

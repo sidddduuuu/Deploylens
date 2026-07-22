@@ -156,7 +156,7 @@ function WorkspaceSidebar() {
   return (
     <nav aria-label="Workspace" className="sidebar">
       <Link aria-label="DeployLens landing page" className="sidebar-brand" href="/">
-        <span aria-hidden="true">D</span>
+        <span aria-hidden="true" className="sidebar-brand-mark">D</span>
         <span className="sidebar-brand-text">DeployLens</span>
       </Link>
       <Link className="sidebar-new" href="/app">
