@@ -21,7 +21,12 @@ test("only the canonical investigation and mobile follow-up reach the tool", () 
     classifyInvestigationQuestion("Why did checkout conversion drop around 14:20?"),
     {},
   );
+  assert.deepEqual(
+    classifyInvestigationQuestion("Why did checkout conversion drop around 14:20 ?"),
+    {},
+  );
   assert.deepEqual(classifyInvestigationQuestion("Show only mobile traffic"), { device: "mobile" });
+  assert.deepEqual(classifyInvestigationQuestion("filter to mobile traffic"), { device: "mobile" });
   assert.equal(classifyInvestigationQuestion("What is the weather?"), null);
   assert.equal(classifyInvestigationQuestion("How do I improve checkout conversion?"), null);
   assert.equal(classifyInvestigationQuestion("Show mobile weather"), null);

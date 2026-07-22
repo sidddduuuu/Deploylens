@@ -8,7 +8,6 @@ import {
 import type { ChatSessionPersistedState } from "@trigger.dev/sdk/chat";
 import {
   BookOpen,
-  LayoutDashboard,
   MessageSquare,
   Plus,
   Search,
@@ -151,31 +150,32 @@ function statusAnnouncement(state: InvestigationMessageState, reconnecting: bool
   return state.message;
 }
 
-function WorkspaceSidebar() {
+function WorkspaceSidebar({ chatId }: Readonly<{ chatId: string }>) {
   return (
     <nav aria-label="Workspace" className="sidebar">
       <Link aria-label="DeployLens landing page" className="sidebar-brand" href="/">
         <span aria-hidden="true" className="sidebar-brand-mark">D</span>
         <span className="sidebar-brand-text">DeployLens</span>
       </Link>
-      <Link className="sidebar-new" href="/app">
+      <Link aria-label="New investigation" className="sidebar-new" href="/app">
         <Plus aria-hidden="true" size={16} strokeWidth={2.25} />
         <span>New investigation</span>
       </Link>
       <div className="sidebar-nav">
-        <Link className="sidebar-link" href="/">
+        <Link aria-label="Home" className="sidebar-link" href="/">
           <Search aria-hidden="true" size={18} strokeWidth={1.9} />
           <span>Home</span>
         </Link>
-        <Link aria-current="page" className="sidebar-link" href="/app">
+        <Link
+          aria-current="page"
+          aria-label="Investigation"
+          className="sidebar-link"
+          href={`/app?chat=${chatId}`}
+        >
           <MessageSquare aria-hidden="true" size={18} strokeWidth={1.9} />
           <span>Investigation</span>
         </Link>
-        <a aria-current="false" className="sidebar-link" href="#conversation-title">
-          <LayoutDashboard aria-hidden="true" size={18} strokeWidth={1.9} />
-          <span>Dashboard</span>
-        </a>
-        <a aria-current="false" className="sidebar-link" href="#finding-title">
+        <a aria-label="Evidence" className="sidebar-link" href="#finding-title">
           <BookOpen aria-hidden="true" size={18} strokeWidth={1.9} />
           <span>Evidence</span>
         </a>
@@ -298,7 +298,7 @@ function Composer({ initialQuestion, busy, onSubmit, sample, suggestedQuestion }
   function runSuggestion() {
     if (!suggestedQuestion) return;
     setDraft(suggestedQuestion);
-    setError(null);
+    setError(onSubmit(suggestedQuestion) ?? null);
   }
 
   return (
@@ -392,25 +392,18 @@ function InvestigationChat({
   const submissionLock = useRef(false);
   const [initialMessages] = useState(() => resumedMessages(chatId, restoredResume));
   const latestQuestion = useRef(restoredResume?.question);
-  const turnSnapshotSaved = useRef(Boolean(restoredResume));
   const transport = useTriggerChatTransport<typeof deploylensAgent>({
     task: "deploylens-agent",
     accessToken: () => mintAccessTokenAction(),
     onSessionChange: (changedChatId, session) => {
       if (changedChatId !== chatId) return;
-      if (!session) {
-        turnSnapshotSaved.current = false;
+      if (!session || session.isStreaming === false) {
         persistResume(chatId, null);
         return;
       }
-      if (session.isStreaming === false) {
-        turnSnapshotSaved.current = false;
-        persistResume(chatId, null);
-        return;
-      }
-      if (session.isStreaming && !turnSnapshotSaved.current && latestQuestion.current) {
+      if (session.isStreaming && latestQuestion.current) {
+        // Keep the newest stream cursor so refresh mid-run can resume cleanly.
         persistResume(chatId, { question: latestQuestion.current, session });
-        turnSnapshotSaved.current = true;
       }
     },
     ...(restoredResume ? { sessions: { [chatId]: restoredResume.session } } : {}),
@@ -462,7 +455,7 @@ function InvestigationChat({
 
   return (
     <div className="workspace">
-      <WorkspaceSidebar />
+      <WorkspaceSidebar chatId={chatId} />
       <aside aria-labelledby="conversation-title" className="chat-rail">
         <p aria-atomic="true" aria-live="polite" className="sr-only" role="status">
           {statusAnnouncement(messageState, reconnecting)}
