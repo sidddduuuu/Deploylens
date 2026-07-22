@@ -2,12 +2,28 @@ import { z } from "zod";
 
 export type InvestigationIntent = Readonly<{ device?: "mobile" }>;
 
+function normalizeInvestigationQuestion(input: string) {
+  return input
+    .trim()
+    .toLowerCase()
+    .replace(/[?!.]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function classifyInvestigationQuestion(input: string): InvestigationIntent | null {
-  const question = input.trim().toLowerCase().replace(/[?!.]+$/, "");
-  if (question === "show only mobile traffic") {
+  const question = normalizeInvestigationQuestion(input);
+  if (
+    question === "show only mobile traffic" ||
+    question === "show me only mobile traffic" ||
+    question === "filter to mobile traffic"
+  ) {
     return { device: "mobile" };
   }
-  if (question === "why did checkout conversion drop around 14:20") {
+  if (
+    question === "why did checkout conversion drop around 14:20" ||
+    question === "why did checkout conversion drop around 14:20 utc"
+  ) {
     return {};
   }
   return null;

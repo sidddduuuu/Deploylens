@@ -13,17 +13,14 @@ export function Reveal({
   delay?: number;
 }>) {
   const reduceMotion = useReducedMotion();
-  if (reduceMotion) {
-    return <div className={className}>{children}</div>;
-  }
 
   return (
     <motion.div
       className={className}
-      initial={{ opacity: 0, y: 18 }}
-      transition={{ delay, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
-      viewport={{ once: true, amount: 0.25 }}
-      whileInView={{ opacity: 1, y: 0 }}
+      initial={false}
+      transition={{ delay, duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+      viewport={{ once: true, amount: 0.2 }}
+      whileInView={{ y: reduceMotion ? 0 : [12, 0] }}
     >
       {children}
     </motion.div>
@@ -32,13 +29,12 @@ export function Reveal({
 
 export function HeroMotion({ children }: Readonly<{ children: ReactNode }>) {
   const reduceMotion = useReducedMotion();
-  if (reduceMotion) return <>{children}</>;
 
   return (
     <motion.div
-      animate={{ opacity: 1, y: 0 }}
-      initial={{ opacity: 0, y: 14 }}
-      transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+      animate={{ y: reduceMotion ? 0 : [10, 0] }}
+      initial={false}
+      transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
     >
       {children}
     </motion.div>
