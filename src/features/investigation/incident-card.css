@@ -225,6 +225,10 @@
   table-layout: fixed;
 }
 
+.scroll-cue {
+  display: none;
+}
+
 .segment-table th:first-child {
   width: 5rem;
 }
@@ -267,6 +271,15 @@
   background: var(--incident);
   border-color: var(--incident);
   color: white;
+}
+
+@media (max-width: 38rem) {
+  .scroll-cue {
+    color: var(--muted);
+    display: block;
+    font-size: 0.72rem;
+    margin: -0.35rem 0 0.65rem;
+  }
 }
 
 .segment-table button[data-cause="true"] {
