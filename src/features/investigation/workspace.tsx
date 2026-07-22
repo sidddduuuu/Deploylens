@@ -5,7 +5,17 @@ import {
   useTriggerChatTransport,
   type InferChatUIMessage,
 } from "@trigger.dev/sdk/chat/react";
-import { useState, type FormEvent } from "react";
+import type { ChatSessionPersistedState } from "@trigger.dev/sdk/chat";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type FormEvent,
+} from "react";
+import { z } from "zod";
 
 import type {
   ChatAccessToken,
@@ -13,14 +23,100 @@ import type {
 } from "../../app/actions.ts";
 import type { deploylensAgent } from "../../trigger/deploylens.ts";
 import {
-  incidentResultSchema,
-  investigationProgressSchema,
+  classifyInvestigationQuestion,
+  investigationQuestionSchema,
   type IncidentResult,
-  type InvestigationProgress,
 } from "./schema.ts";
+import {
+  deriveMessageState,
+  unsupportedQuestionMessage,
+  type InvestigationMessageState,
+} from "./message-state.ts";
 import { normalizedTimelineX, segmentTone, selectIncidentView } from "./view.ts";
 
 type DeployLensMessage = InferChatUIMessage<typeof deploylensAgent>;
+
+const storedSessionSchema = z
+  .object({
+    publicAccessToken: z.string().min(1),
+    lastEventId: z.string().min(1).optional(),
+    isStreaming: z.boolean().optional(),
+  })
+  .strict();
+
+const storedResumeSchema = z
+  .object({
+    question: investigationQuestionSchema,
+    session: storedSessionSchema,
+  })
+  .strict();
+
+type StoredResume = Readonly<{
+  question: string;
+  session: ChatSessionPersistedState;
+}>;
+
+function resumeStorageKey(chatId: string) {
+  return `deploylens:chat:${chatId}:resume`;
+}
+
+function parseStoredResume(stored: string | null): StoredResume | undefined {
+  try {
+    if (!stored) return undefined;
+    const { question, session } = storedResumeSchema.parse(JSON.parse(stored));
+    return {
+      question,
+      session: {
+        publicAccessToken: session.publicAccessToken,
+        ...(session.lastEventId === undefined ? {} : { lastEventId: session.lastEventId }),
+        ...(session.isStreaming === undefined ? {} : { isStreaming: session.isStreaming }),
+      },
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function persistResume(chatId: string, resume: StoredResume | null) {
+  if (typeof window === "undefined") return;
+  try {
+    const key = resumeStorageKey(chatId);
+    if (resume) window.sessionStorage.setItem(key, JSON.stringify(resume));
+    else window.sessionStorage.removeItem(key);
+  } catch {
+    // Storage is a refresh enhancement; the active chat remains usable without it.
+  }
+}
+
+function resumedMessages(chatId: string, resume: StoredResume | undefined) {
+  if (!resume) return [];
+  return [{
+    id: `resumed-${chatId}`,
+    parts: [{ text: resume.question, type: "text" }],
+    role: "user",
+  }] satisfies DeployLensMessage[];
+}
+
+function subscribeStoredResume() {
+  return () => undefined;
+}
+
+function serverStoredResume() {
+  return null;
+}
+
+function useStoredResume(chatId: string) {
+  const getSnapshot = useCallback(() => {
+    try {
+      return window.sessionStorage.getItem(resumeStorageKey(chatId));
+    } catch {
+      return null;
+    }
+  }, [chatId]);
+  const stored = useSyncExternalStore(subscribeStoredResume, getSnapshot, serverStoredResume);
+
+  return useMemo(() => parseStoredResume(stored), [stored]);
+}
 
 const timeFormatter = new Intl.DateTimeFormat("en-GB", {
   hour: "2-digit",
@@ -42,36 +138,16 @@ function formatSignedPercent(value: number) {
 
 const countFormatter = new Intl.NumberFormat("en");
 
-function latestAssistant(messages: readonly DeployLensMessage[]) {
-  return messages.findLast(({ role }) => role === "assistant");
-}
-
-function incidentFromMessages(messages: readonly DeployLensMessage[]) {
-  for (const message of messages.toReversed()) {
-    for (const part of message.parts.toReversed()) {
-      if (part.type !== "tool-investigateIncident" || part.state !== "output-available") continue;
-      const parsed = incidentResultSchema.safeParse(part.output);
-      if (parsed.success) return parsed.data;
-    }
-  }
-}
-
-function progressFromMessages(messages: readonly DeployLensMessage[]) {
-  const assistant = latestAssistant(messages);
-  if (!assistant) return [];
-
-  return assistant.parts.flatMap((part) => {
-    if (part.type !== "data-progress") return [];
-    const parsed = investigationProgressSchema.safeParse(part.data);
-    return parsed.success ? [parsed.data] : [];
-  });
-}
-
-function Conversation({ messages, progress, error }: Readonly<{
+function Conversation({ messages, state, busy, onRetry }: Readonly<{
   messages: readonly DeployLensMessage[];
-  progress: readonly InvestigationProgress[];
-  error: Error | undefined;
+  state: InvestigationMessageState;
+  busy: boolean;
+  onRetry: () => void;
 }>) {
+  const failure = state.kind === "schema-invalid" || state.kind === "tool-error" || state.kind === "unsupported"
+    ? state
+    : undefined;
+
   return (
     <div className="conversation">
       <ol aria-live="polite" aria-relevant="additions text" className="message-log" role="log">
@@ -88,11 +164,11 @@ function Conversation({ messages, progress, error }: Readonly<{
           </li>
         ) : null))}
       </ol>
-      {progress.length > 0 ? (
+      {state.progress.length > 0 ? (
         <div aria-live="polite" className="message message-system progress-message" role="status">
           <span>Analysis progress</span>
           <ul className="progress-list">
-            {progress.map(({ label, status }) => (
+            {state.progress.map(({ label, status }) => (
               <li key={label}>
                 <span aria-hidden="true">
                   {status === "complete" ? "✓" : status === "failed" ? "×" : "·"}
@@ -104,10 +180,15 @@ function Conversation({ messages, progress, error }: Readonly<{
           </ul>
         </div>
       ) : null}
-      {error ? (
-        <p aria-live="polite" className="composer-error" role="status">
-          The investigation could not complete. Check the Trigger.dev and ClickHouse configuration.
-        </p>
+      {failure ? (
+        <div aria-live="polite" className="message message-system" role="status">
+          <p className="composer-error">{failure.message}</p>
+          {failure.retryable ? (
+            <button className="primary-button" disabled={busy} onClick={onRetry} type="button">
+              Retry investigation
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );
@@ -116,7 +197,7 @@ function Conversation({ messages, progress, error }: Readonly<{
 function Composer({ initialQuestion, busy, onSubmit }: Readonly<{
   initialQuestion: string;
   busy: boolean;
-  onSubmit: (question: string) => void;
+  onSubmit: (question: string) => string | undefined;
 }>) {
   const [draft, setDraft] = useState(initialQuestion);
   const [error, setError] = useState<string | null>(null);
@@ -128,8 +209,7 @@ function Composer({ initialQuestion, busy, onSubmit }: Readonly<{
       setError("Enter a question about checkout conversion.");
       return;
     }
-    setError(null);
-    onSubmit(question);
+    setError(onSubmit(question) ?? null);
   }
 
   return (
@@ -424,20 +504,23 @@ function IncidentEvidence({ incident, selectedViewId, onSelect, preview }: Reado
   );
 }
 
-function EvidenceStatus({ busy, failed }: Readonly<{ busy: boolean; failed: boolean }>) {
-  const title = failed
-    ? "No live incident result was produced"
-    : busy
-      ? "Building the incident evidence"
-      : "Waiting for a validated incident result";
+function EvidenceStatus({ state }: Readonly<{ state: InvestigationMessageState }>) {
+  const failed = state.kind === "schema-invalid" || state.kind === "tool-error";
+  const title = state.kind === "unsupported"
+    ? "This question is outside the demo scope"
+    : failed
+      ? "No live incident result was produced"
+      : "Building the incident evidence";
 
   return (
     <section aria-live="polite" className="evidence-pane evidence-status">
       <p className="eyebrow">Live evidence</p>
       <h2>{title}</h2>
-      <p>{failed
-        ? "The fixture preview was removed so stale evidence is not presented as a completed analysis."
-        : "The card will appear only after the streamed tool output passes validation."}</p>
+      <p>{state.kind === "unsupported"
+        ? unsupportedQuestionMessage
+        : failed
+          ? "Retry to run the investigation again. Stale evidence has not been shown."
+          : "The card will appear only after the streamed tool output passes validation."}</p>
     </section>
   );
 }
@@ -449,29 +532,93 @@ type InvestigationWorkspaceProps = Readonly<{
   startSessionAction: () => Promise<StartChatSessionResult>;
 }>;
 
-export function InvestigationWorkspace({
+type InvestigationChatProps = InvestigationWorkspaceProps & Readonly<{
+  restoredResume?: StoredResume;
+}>;
+
+function ActiveIncidentEvidence({ incident, preview }: Readonly<{
+  incident: IncidentResult;
+  preview: boolean;
+}>) {
+  const [selectedViewId, setSelectedViewId] = useState(incident.defaultViewId);
+  return (
+    <IncidentEvidence
+      incident={incident}
+      onSelect={setSelectedViewId}
+      preview={preview}
+      selectedViewId={selectedViewId}
+    />
+  );
+}
+
+function InvestigationChat({
   incident,
   chatId,
   mintAccessTokenAction,
+  restoredResume,
   startSessionAction,
-}: InvestigationWorkspaceProps) {
-  const [selectedViewId, setSelectedViewId] = useState(incident.defaultViewId);
+}: InvestigationChatProps) {
+  const submissionLock = useRef(false);
+  const [initialMessages] = useState(() => resumedMessages(chatId, restoredResume));
+  const latestQuestion = useRef(restoredResume?.question);
+  const turnSnapshotSaved = useRef(Boolean(restoredResume));
   const transport = useTriggerChatTransport<typeof deploylensAgent>({
     task: "deploylens-agent",
     accessToken: () => mintAccessTokenAction(),
+    onSessionChange: (changedChatId, session) => {
+      if (changedChatId !== chatId) return;
+      if (!session) {
+        turnSnapshotSaved.current = false;
+        persistResume(chatId, null);
+        return;
+      }
+      if (session.isStreaming === false) {
+        turnSnapshotSaved.current = false;
+        return;
+      }
+      if (session.isStreaming && !turnSnapshotSaved.current && latestQuestion.current) {
+        persistResume(chatId, { question: latestQuestion.current, session });
+        turnSnapshotSaved.current = true;
+      }
+    },
+    ...(restoredResume ? { sessions: { [chatId]: restoredResume.session } } : {}),
     startSession: () => startSessionAction(),
   });
-  const { messages, sendMessage, status, error } = useChat<DeployLensMessage>({
+  const { clearError, messages, regenerate, sendMessage, status } = useChat<DeployLensMessage>({
     id: chatId,
+    messages: initialMessages,
+    resume: initialMessages.length > 0,
     transport,
   });
-  const streamedIncident = incidentFromMessages(messages);
-  const currentIncident = streamedIncident ?? (messages.length === 0 ? incident : undefined);
-  const progress = progressFromMessages(messages);
+  const messageState = deriveMessageState(messages, status);
+  const currentIncident = messageState.kind === "valid"
+    ? messageState.incident
+    : messageState.kind === "initial"
+      ? incident
+      : undefined;
   const busy = status === "submitted" || status === "streaming";
 
+  useEffect(() => {
+    if (!busy) submissionLock.current = false;
+  }, [busy]);
+
   function investigate(question: string) {
-    void sendMessage({ text: question });
+    if (!classifyInvestigationQuestion(question)) return unsupportedQuestionMessage;
+    if (submissionLock.current || busy) return "Wait for the current investigation to finish.";
+    submissionLock.current = true;
+    latestQuestion.current = question;
+    void sendMessage({ text: question }).catch(() => {
+      submissionLock.current = false;
+    });
+  }
+
+  function retry() {
+    if (submissionLock.current || busy) return;
+    submissionLock.current = true;
+    clearError();
+    void regenerate().catch(() => {
+      submissionLock.current = false;
+    });
   }
 
   return (
@@ -482,19 +629,30 @@ export function InvestigationWorkspace({
           <h1 id="conversation-title">Checkout conversion</h1>
           <p>Ask one question. The evidence stays linked as you narrow the incident.</p>
         </div>
-        <Conversation error={error} messages={messages} progress={progress} />
+        <Conversation busy={busy} messages={messages} onRetry={retry} state={messageState} />
         <Composer busy={busy} initialQuestion={incident.question} onSubmit={investigate} />
       </aside>
       {currentIncident ? (
-        <IncidentEvidence
+        <ActiveIncidentEvidence
           incident={currentIncident}
-          onSelect={setSelectedViewId}
-          preview={!streamedIncident}
-          selectedViewId={selectedViewId}
+          key={`${currentIncident.incidentId}:${currentIncident.generatedAt}:${currentIncident.defaultViewId}`}
+          preview={messageState.kind === "initial"}
         />
       ) : (
-        <EvidenceStatus busy={busy} failed={Boolean(error)} />
+        <EvidenceStatus state={messageState} />
       )}
     </div>
+  );
+}
+
+export function InvestigationWorkspace(props: InvestigationWorkspaceProps) {
+  const restoredResume = useStoredResume(props.chatId);
+
+  return (
+    <InvestigationChat
+      {...props}
+      key={restoredResume ? "restored" : "new"}
+      {...(restoredResume ? { restoredResume } : {})}
+    />
   );
 }

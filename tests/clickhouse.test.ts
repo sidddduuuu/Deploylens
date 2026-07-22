@@ -8,6 +8,7 @@ test("ClickHouse configuration validates required connection values", () => {
     CLICKHOUSE_URL: "https://example.clickhouse.cloud",
     CLICKHOUSE_PASSWORD: "secret",
   }), {
+    database: "deploylens",
     url: "https://example.clickhouse.cloud",
     username: "default",
     password: "secret",

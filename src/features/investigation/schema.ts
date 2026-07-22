@@ -1,5 +1,27 @@
 import { z } from "zod";
 
+export type InvestigationIntent = Readonly<{ device?: "mobile" }>;
+
+export function classifyInvestigationQuestion(input: string): InvestigationIntent | null {
+  const question = input.trim().toLowerCase().replace(/[?!.]+$/, "");
+  if (question === "show only mobile traffic") {
+    return { device: "mobile" };
+  }
+  if (question === "why did checkout conversion drop around 14:20") {
+    return {};
+  }
+  return null;
+}
+
+export const investigationQuestionSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(500)
+  .refine((question) => classifyInvestigationQuestion(question) !== null, {
+    message: "ask about the seeded checkout incident or filter it to mobile traffic",
+  });
+
 const idSchema = z.string().trim().min(1).max(100);
 const labelSchema = z.string().trim().min(1).max(160);
 const timestampSchema = z.string().datetime({ offset: true });

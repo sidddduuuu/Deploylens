@@ -1,14 +1,26 @@
 import { randomUUID } from "node:crypto";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { connection } from "next/server";
+import { z } from "zod";
 
 import { incidentFixture } from "../features/investigation/fixture.ts";
 import { InvestigationWorkspace } from "../features/investigation/workspace.tsx";
 import { mintChatAccessToken, startChatSession } from "./actions.ts";
 
-export default async function HomePage() {
+const chatIdSchema = z.string().uuid();
+
+type HomePageProps = Readonly<{
+  searchParams: Promise<{ chat?: string | string[] }>;
+}>;
+
+export default async function HomePage({ searchParams }: HomePageProps) {
   await connection();
-  const chatId = randomUUID();
+  const parsedChatId = chatIdSchema.safeParse((await searchParams).chat);
+  if (!parsedChatId.success) {
+    redirect(`/?chat=${randomUUID()}`);
+  }
+  const chatId = parsedChatId.data;
 
   async function startSessionAction() {
     "use server";
@@ -32,6 +44,7 @@ export default async function HomePage() {
       <InvestigationWorkspace
         chatId={chatId}
         incident={incidentFixture}
+        key={chatId}
         mintAccessTokenAction={mintAccessTokenAction}
         startSessionAction={startSessionAction}
       />

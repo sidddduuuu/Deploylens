@@ -1,4 +1,6 @@
-CREATE TABLE IF NOT EXISTS events
+CREATE DATABASE IF NOT EXISTS deploylens;
+
+CREATE TABLE IF NOT EXISTS deploylens.events
 (
     timestamp DateTime('UTC'),
     session_id UInt64,
@@ -14,7 +16,7 @@ CREATE TABLE IF NOT EXISTS events
 ENGINE = MergeTree
 ORDER BY (service, timestamp, version, region, device, event_name, session_id);
 
-CREATE TABLE IF NOT EXISTS deployments
+CREATE TABLE IF NOT EXISTS deploylens.deployments
 (
     timestamp DateTime('UTC'),
     service LowCardinality(String),
@@ -25,7 +27,7 @@ CREATE TABLE IF NOT EXISTS deployments
 ENGINE = MergeTree
 ORDER BY (service, timestamp, version);
 
-CREATE TABLE IF NOT EXISTS minute_metrics
+CREATE TABLE IF NOT EXISTS deploylens.minute_metrics
 (
     service LowCardinality(String),
     minute DateTime('UTC'),
@@ -41,7 +43,7 @@ CREATE TABLE IF NOT EXISTS minute_metrics
 ENGINE = AggregatingMergeTree
 ORDER BY (service, minute, version, region, device);
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS minute_metrics_mv TO minute_metrics AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS deploylens.minute_metrics_mv TO deploylens.minute_metrics AS
 SELECT
     service,
     toStartOfMinute(timestamp) AS minute,
@@ -53,5 +55,5 @@ SELECT
     sumState(toUInt64(event_name = 'checkout_error')) AS errors,
     sumState(toUInt64(event_name = 'purchase')) AS purchases,
     quantileExactState(0.95)(latency_ms) AS p95_latency_ms
-FROM events
+FROM deploylens.events
 GROUP BY service, minute, version, region, device;

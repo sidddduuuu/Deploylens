@@ -3,6 +3,7 @@ import { z } from "zod";
 
 const clickHouseConfigSchema = z
   .object({
+    database: z.literal("deploylens"),
     url: z.string().url(),
     username: z.string().trim().min(1),
     password: z.string().min(1),
@@ -11,6 +12,7 @@ const clickHouseConfigSchema = z
 
 export function parseClickHouseConfig(env: Readonly<Record<string, string | undefined>>) {
   return clickHouseConfigSchema.parse({
+    database: "deploylens",
     url: env.CLICKHOUSE_URL,
     username: env.CLICKHOUSE_USERNAME ?? "default",
     password: env.CLICKHOUSE_PASSWORD,

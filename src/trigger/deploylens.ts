@@ -1,7 +1,14 @@
-import { anthropic } from "@ai-sdk/anthropic";
 import { batch, schemaTask } from "@trigger.dev/sdk";
 import { ai, chat } from "@trigger.dev/sdk/ai";
-import { stepCountIs, streamText, tool, type InferUITools, type UIMessage } from "ai";
+import {
+  createUIMessageStream,
+  generateId,
+  tool,
+  type InferUITools,
+  type UIMessage,
+  type UIMessageStreamOptions,
+  type UIMessageStreamWriter,
+} from "ai";
 import { z } from "zod";
 
 import {
@@ -12,10 +19,13 @@ import {
   querySegments,
 } from "../features/investigation/analysis.ts";
 import {
+  classifyInvestigationQuestion,
   incidentResultSchema,
+  investigationQuestionSchema,
   type IncidentResult,
   type InvestigationProgress,
 } from "../features/investigation/schema.ts";
+import { unsupportedQuestionMessage } from "../features/investigation/message-state.ts";
 import { withClickHouse } from "../lib/clickhouse.ts";
 
 const checkoutAnalysisSchema = analysisParamsSchema.refine(
@@ -23,13 +33,23 @@ const checkoutAnalysisSchema = analysisParamsSchema.refine(
   "only the checkout service is supported",
 );
 
-const investigationInputSchema = z
+export const investigationInputSchema = z
   .object({
     metric: z.literal("checkout_conversion"),
-    question: z.string().trim().min(1).max(500),
+    question: investigationQuestionSchema,
+    device: z.literal("mobile").optional(),
     analysis: checkoutAnalysisSchema,
   })
-  .strict();
+  .strict()
+  .superRefine(({ device, question }, context) => {
+    if (device !== classifyInvestigationQuestion(question)?.device) {
+      context.addIssue({
+        code: "custom",
+        message: "device must match the supported investigation request",
+        path: ["device"],
+      });
+    }
+  });
 
 export const baselineTask = schemaTask({
   id: "deploylens-baseline",
@@ -96,7 +116,7 @@ export const investigateIncidentTask = schemaTask<
   id: "investigate-incident",
   description: "Investigate the seeded checkout conversion incident with deterministic evidence.",
   schema: investigationInputSchema,
-  run: async ({ analysis, question }) => {
+  run: async ({ analysis, device, question }) => {
     const toolCallId = ai.toolCallId() ?? "investigation";
     await writeProgress(toolCallId, analysisStarted);
 
@@ -128,6 +148,7 @@ export const investigateIncidentTask = schemaTask<
         question,
         service: analysis.service,
         generatedAt: new Date().toISOString(),
+        ...(device ? { device } : {}),
       });
       await writeProgress(toolCallId, [
         { key: "render", label: "Rendering incident", status: "complete" },
@@ -165,20 +186,96 @@ export type DeployLensUIMessage = UIMessage<
   InferUITools<typeof deploylensTools>
 >;
 
+type DeployLensStreamWriter = UIMessageStreamWriter<DeployLensUIMessage>;
+
+const seededAnalysis = {
+  service: "checkout",
+  baseline: { from: "2026-07-20T13:50:00Z", to: "2026-07-20T14:17:00Z" },
+  incident: { from: "2026-07-20T14:20:00Z", to: "2026-07-20T14:47:00Z" },
+} as const;
+
+function latestUserText(messages: readonly { role: string; content: unknown }[]) {
+  const content = messages.findLast(({ role }) => role === "user")?.content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content.flatMap((part) =>
+    part && typeof part === "object" && "type" in part && part.type === "text" && "text" in part && typeof part.text === "string"
+      ? [part.text]
+      : [],
+  ).join("\n");
+}
+
+export function publicInvestigationError() {
+  return "The investigation failed before a validated result was produced. Please retry.";
+}
+
+function writeText(writer: DeployLensStreamWriter, text: string) {
+  const id = generateId();
+  writer.write({ type: "text-start", id });
+  writer.write({ type: "text-delta", id, delta: text });
+  writer.write({ type: "text-end", id });
+}
+
+function responseStream(
+  execute: (writer: DeployLensStreamWriter) => Promise<void> | void,
+) {
+  return {
+    toUIMessageStream(options: UIMessageStreamOptions<DeployLensUIMessage> = {}) {
+      return createUIMessageStream<DeployLensUIMessage>({
+        ...(options.originalMessages ? { originalMessages: options.originalMessages } : {}),
+        ...(options.generateMessageId ? { generateId: options.generateMessageId } : {}),
+        ...(options.onFinish ? { onFinish: options.onFinish } : {}),
+        onError: options.onError ?? publicInvestigationError,
+        execute: async ({ writer }) => {
+          writer.write({ type: "start" });
+          await execute(writer);
+          writer.write({ type: "finish", finishReason: "stop" });
+        },
+      });
+    },
+  };
+}
+
 export const deploylensAgent = chat.withUIMessage<DeployLensUIMessage>().agent({
   id: "deploylens-agent",
   tools: deploylensTools,
-  run: async ({ messages, tools, signal }) => streamText({
-    ...chat.toStreamTextOptions({ tools }),
-    model: anthropic("claude-sonnet-4-5"),
-    system: `You are DeployLens. For the seeded checkout incident, call investigateIncident once using checkout_conversion, service checkout, baseline 2026-07-20T13:50:00Z–2026-07-20T14:17:00Z, and incident 2026-07-20T14:20:00Z–2026-07-20T14:47:00Z. Copy the user's question exactly. Never invent evidence. After the tool returns, state its conclusion in no more than two sentences.`,
-    messages,
-    abortSignal: signal,
-    prepareStep: ({ stepNumber }) => ({
-      toolChoice: stepNumber === 0
-        ? { type: "tool", toolName: "investigateIncident" }
-        : "none",
-    }),
-    stopWhen: stepCountIs(2),
-  }),
+  uiMessageStreamOptions: { onError: publicInvestigationError },
+  run: async ({ messages, signal }) => {
+    const question = latestUserText(messages);
+    const intent = classifyInvestigationQuestion(question);
+    if (!intent) return responseStream((writer) => writeText(writer, unsupportedQuestionMessage));
+
+    const input = investigationInputSchema.parse({
+      metric: "checkout_conversion",
+      question,
+      analysis: seededAnalysis,
+      ...(intent.device ? { device: intent.device } : {}),
+    });
+
+    return responseStream(async (writer) => {
+      const toolCallId = generateId();
+      writer.write({
+        type: "tool-input-available",
+        toolCallId,
+        toolName: "investigateIncident",
+        input,
+      });
+      try {
+        const output = incidentResultSchema.parse(await executeInvestigation(input, {
+          toolCallId,
+          messages,
+          abortSignal: signal,
+        }));
+        writer.write({ type: "tool-output-available", toolCallId, output });
+        writeText(writer, output.finding.headline);
+      } catch (error) {
+        if (signal.aborted) throw error;
+        writer.write({
+          type: "tool-output-error",
+          toolCallId,
+          errorText: publicInvestigationError(),
+        });
+      }
+    });
+  },
 });
