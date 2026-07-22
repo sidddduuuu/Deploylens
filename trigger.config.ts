@@ -16,7 +16,7 @@ export default defineConfig({
       }),
     ],
   },
-  project: "proj_pwljepatrnpcefydvodo",
+  project: "proj_ynjfjijqfgternjoiukp",
   dirs: ["./src/trigger"],
   maxDuration: 3600,
   runtime: "node-22",
