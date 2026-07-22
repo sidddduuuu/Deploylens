@@ -1,5 +1,6 @@
 "use client";
 
+import { motion, useReducedMotion } from "framer-motion";
 import { useState } from "react";
 
 import type { IncidentResult } from "./schema.ts";
@@ -45,6 +46,7 @@ function checkoutConversion(stages: IncidentView["funnel"]["baseline"]) {
 }
 
 function EvidenceMetrics({ view }: Readonly<{ view: IncidentView }>) {
+  const reduceMotion = useReducedMotion();
   const baselineConversion = checkoutConversion(view.funnel.baseline);
   const incidentConversion = checkoutConversion(view.funnel.incident);
   const peakLatency = Math.max(...view.timeline.map(({ p95LatencyMs }) => p95LatencyMs));
@@ -53,12 +55,18 @@ function EvidenceMetrics({ view }: Readonly<{ view: IncidentView }>) {
     : incidentConversion / baselineConversion - 1;
 
   return (
-    <dl className="metrics">
+    <motion.dl
+      animate={{ opacity: 1, y: 0 }}
+      className="metrics"
+      initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+      key={view.id}
+      transition={{ duration: 0.35 }}
+    >
       <div><dt>Baseline conversion</dt><dd>{formatPercent(baselineConversion)}</dd></div>
       <div><dt>Incident conversion</dt><dd>{formatPercent(incidentConversion)}</dd></div>
       <div><dt>Relative change</dt><dd className={relativeChange < 0 ? "negative" : undefined}>{formatPercent(relativeChange)}</dd></div>
       <div><dt>Peak p95 latency</dt><dd>{peakLatency.toFixed(0)} ms</dd></div>
-    </dl>
+    </motion.dl>
   );
 }
 
@@ -123,6 +131,7 @@ function TimelineChart({ incident, view }: Readonly<{
   incident: IncidentResult;
   view: IncidentView;
 }>) {
+  const reduceMotion = useReducedMotion();
   const allPoints = incident.views.flatMap(({ timeline }) => timeline);
   const maxError = Math.max(0.1, ...allPoints.map(({ errorRate }) => errorRate));
   const maxLatency = Math.max(500, ...allPoints.map(({ p95LatencyMs }) => p95LatencyMs));
@@ -148,15 +157,33 @@ function TimelineChart({ incident, view }: Readonly<{
           <svg aria-labelledby="timeline-svg-title timeline-svg-description" role="img" viewBox={`0 0 ${chartWidth} 232`}>
             <title id="timeline-svg-title">{`Checkout incident timeline for ${view.label}`}</title>
             <desc id="timeline-svg-description">Three aligned lanes show conversion rate, error rate, and p95 latency. Vertical lines mark deployment, incident start, and rollback.</desc>
-            {lanes.map(({ metric, label, top, ceiling }) => (
-              <g className={`timeline-lane lane-${metric}`} key={metric}>
-                <text x="0" y={top + 12}>{label}</text>
-                <line x1={chartLeft} x2={chartWidth - chartRight} y1={top + laneHeight} y2={top + laneHeight} />
-                <polyline points={metricPoints(view.timeline, metric, top, ceiling)} />
-              </g>
-            ))}
-            {markers.map((marker) => (
-              <line className={`timeline-marker marker-${marker.kind}`} key={`${marker.kind}-${marker.at}`} x1={timelineX(marker.at, view.timeline)} x2={timelineX(marker.at, view.timeline)} y1="4" y2="214" />
+            {lanes.map(({ metric, label, top, ceiling }, index) => {
+              const points = metricPoints(view.timeline, metric, top, ceiling);
+              return (
+                <g className={`timeline-lane lane-${metric}`} key={`${view.id}-${metric}`}>
+                  <text x="0" y={top + 12}>{label}</text>
+                  <line x1={chartLeft} x2={chartWidth - chartRight} y1={top + laneHeight} y2={top + laneHeight} />
+                  <motion.polyline
+                    animate={{ opacity: 1, pathLength: 1 }}
+                    initial={reduceMotion ? false : { opacity: 0.2, pathLength: 0 }}
+                    points={points}
+                    transition={{ delay: index * 0.08, duration: 0.7, ease: "easeOut" }}
+                  />
+                </g>
+              );
+            })}
+            {markers.map((marker, index) => (
+              <motion.line
+                animate={{ opacity: 1 }}
+                className={`timeline-marker marker-${marker.kind}`}
+                initial={reduceMotion ? false : { opacity: 0 }}
+                key={`${marker.kind}-${marker.at}`}
+                transition={{ delay: 0.35 + index * 0.08, duration: 0.35 }}
+                x1={timelineX(marker.at, view.timeline)}
+                x2={timelineX(marker.at, view.timeline)}
+                y1="4"
+                y2="214"
+              />
             ))}
             <text className="timeline-time" x={chartLeft} y="229">{timeFormatter.format(new Date(firstAt))}</text>
             <text className="timeline-time timeline-time-end" x={chartWidth - chartRight} y="229">{timeFormatter.format(new Date(lastAt))} UTC</text>
@@ -174,10 +201,18 @@ function FunnelCell({ stage, kind }: Readonly<{
   stage: IncidentView["funnel"]["baseline"][number];
   kind: "baseline" | "incident";
 }>) {
+  const reduceMotion = useReducedMotion();
   return (
     <td>
       <span className="funnel-value"><strong>{countFormatter.format(stage.sessions)}</strong><span>{formatPercent(stage.completionFromStart)} complete · {formatPercent(stage.dropoffFromPrevious)} drop</span></span>
-      <span aria-hidden="true" className="funnel-track"><span className={`funnel-fill funnel-${kind}`} style={{ width: `${stage.completionFromStart * 100}%` }} /></span>
+      <span aria-hidden="true" className="funnel-track">
+        <motion.span
+          animate={{ width: `${stage.completionFromStart * 100}%` }}
+          className={`funnel-fill funnel-${kind}`}
+          initial={reduceMotion ? false : { width: 0 }}
+          transition={{ duration: 0.55, ease: "easeOut" }}
+        />
+      </span>
     </td>
   );
 }
@@ -191,7 +226,7 @@ function FunnelComparison({ view }: Readonly<{ view: IncidentView }>) {
           <caption className="sr-only">{`Baseline and incident funnel for ${view.label}`}</caption>
           <thead><tr><th scope="col">Stage</th><th scope="col">Baseline</th><th scope="col">Incident</th></tr></thead>
           <tbody>{view.funnel.baseline.map((baseline, index) => (
-            <tr key={baseline.key}>
+            <tr key={`${view.id}-${baseline.key}`}>
               <th scope="row">{baseline.label}</th>
               <FunnelCell kind="baseline" stage={baseline} />
               <FunnelCell kind="incident" stage={view.funnel.incident[index]!} />
@@ -222,9 +257,18 @@ function SegmentCell({ entry, incident, selectedViewId, onSelect }: Readonly<{
   const change = formatSignedPercent(entry.conversionRelativeChangePct);
   return (
     <td>
-      <button aria-label={`${entry.segment.version}, ${entry.segment.region}, ${entry.segment.device}: ${change} conversion change, ${formatSignedPercent(entry.checkoutFailureRelativeChangePct)} checkout failure change${cause ? ", likely cause" : ""}.`} aria-pressed={selectedViewId === entry.viewId} data-cause={cause || undefined} data-tone={segmentTone(entry.conversionRelativeChangePct)} onClick={() => onSelect(entry.viewId)} type="button">
+      <motion.button
+        aria-label={`${entry.segment.version}, ${entry.segment.region}, ${entry.segment.device}: ${change} conversion change, ${formatSignedPercent(entry.checkoutFailureRelativeChangePct)} checkout failure change${cause ? ", likely cause" : ""}.`}
+        aria-pressed={selectedViewId === entry.viewId}
+        data-cause={cause || undefined}
+        data-tone={segmentTone(entry.conversionRelativeChangePct)}
+        onClick={() => onSelect(entry.viewId)}
+        type="button"
+        whileHover={{ y: -1 }}
+        whileTap={{ scale: 0.98 }}
+      >
         <strong>{change}</strong><span>{cause ? "Likely cause" : `${formatPercent(entry.incidentConversionRate)} conversion`}</span>
-      </button>
+      </motion.button>
     </td>
   );
 }
@@ -251,7 +295,6 @@ function SegmentHeatmap({ incident, selectedViewId, onSelect }: Readonly<{
                 <tr key={region}>
                   {regionIndex === 0 ? <th rowSpan={regions.length} scope="rowgroup">{version}</th> : null}
                   <th scope="row">{region}</th>
-                  {/* ponytail: the contract fixes this at 24 cells; index it only if cardinality grows. */}
                   {devices.map((device) => {
                     const entry = incident.segments.find(({ segment }) => segment.version === version && segment.region === region && segment.device === device);
                     return entry ? <SegmentCell entry={entry} incident={incident} key={device} onSelect={onSelect} selectedViewId={selectedViewId} /> : <td key={device}>—</td>;
@@ -272,6 +315,7 @@ function IncidentEvidence({ incident, selectedViewId, onSelect, preview }: Reado
   onSelect: (viewId: string) => void;
   preview: boolean;
 }>) {
+  const reduceMotion = useReducedMotion();
   const view = selectIncidentView(incident, selectedViewId);
   const defaultView = selectIncidentView(incident, incident.defaultViewId);
   const resetLabel = defaultView.label === "All checkout traffic"
@@ -281,7 +325,13 @@ function IncidentEvidence({ incident, selectedViewId, onSelect, preview }: Reado
       : defaultView.label;
 
   return (
-    <article aria-labelledby="finding-title" className="evidence-pane">
+    <motion.article
+      animate={{ opacity: 1, y: 0 }}
+      aria-labelledby="finding-title"
+      className="evidence-pane"
+      initial={reduceMotion ? false : { opacity: 0, y: 12 }}
+      transition={{ duration: 0.4, ease: "easeOut" }}
+    >
       {preview ? (
         <p className="preview-notice" role="note">Example result — no live investigation has run yet.</p>
       ) : null}
@@ -331,7 +381,7 @@ function IncidentEvidence({ incident, selectedViewId, onSelect, preview }: Reado
         <span>Schema-validated evidence</span>
         <span>UTC</span>
       </footer>
-    </article>
+    </motion.article>
   );
 }
 

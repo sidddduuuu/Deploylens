@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import type { Metadata } from "next";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { z } from "zod";
@@ -40,13 +39,6 @@ export default async function WorkspacePage({ searchParams }: WorkspacePageProps
 
   return (
     <main className="app-shell">
-      <header className="topbar">
-        <Link aria-label="DeployLens landing page" className="brand" href="/">
-          <span aria-hidden="true">D</span>
-          DeployLens
-        </Link>
-        <span className="mode"><span aria-hidden="true" />Guided demo · UTC</span>
-      </header>
       <InvestigationWorkspace
         chatId={chatId}
         incident={incidentFixture}

@@ -6,6 +6,16 @@ import {
   type InferChatUIMessage,
 } from "@trigger.dev/sdk/chat/react";
 import type { ChatSessionPersistedState } from "@trigger.dev/sdk/chat";
+import { motion, useReducedMotion } from "framer-motion";
+import {
+  BookOpen,
+  LayoutDashboard,
+  MessageSquare,
+  Plus,
+  Search,
+  Sparkles,
+} from "lucide-react";
+import Link from "next/link";
 import {
   useCallback,
   useEffect,
@@ -142,13 +152,59 @@ function statusAnnouncement(state: InvestigationMessageState, reconnecting: bool
   return state.message;
 }
 
+function WorkspaceSidebar() {
+  return (
+    <nav aria-label="Workspace" className="sidebar">
+      <Link aria-label="DeployLens landing page" className="sidebar-brand" href="/">
+        <span aria-hidden="true">D</span>
+        <span className="sidebar-brand-text">DeployLens</span>
+      </Link>
+      <Link className="sidebar-new" href="/app">
+        <Plus aria-hidden="true" size={16} strokeWidth={2.25} />
+        <span>New investigation</span>
+      </Link>
+      <div className="sidebar-nav">
+        <Link className="sidebar-link" href="/">
+          <Search aria-hidden="true" size={18} strokeWidth={1.9} />
+          <span>Home</span>
+        </Link>
+        <Link aria-current="page" className="sidebar-link" href="/app">
+          <MessageSquare aria-hidden="true" size={18} strokeWidth={1.9} />
+          <span>Investigation</span>
+        </Link>
+        <a aria-current="false" className="sidebar-link" href="#conversation-title">
+          <LayoutDashboard aria-hidden="true" size={18} strokeWidth={1.9} />
+          <span>Dashboard</span>
+        </a>
+        <a aria-current="false" className="sidebar-link" href="#finding-title">
+          <BookOpen aria-hidden="true" size={18} strokeWidth={1.9} />
+          <span>Evidence</span>
+        </a>
+      </div>
+      <div className="sidebar-meta">
+        <span className="sidebar-pill"><i aria-hidden="true" />Guided demo · UTC</span>
+        <span className="sidebar-pill">
+          <Sparkles aria-hidden="true" size={12} strokeWidth={2} />
+          Seeded checkout
+        </span>
+      </div>
+    </nav>
+  );
+}
+
 function WorkspaceIntro({ state, reconnecting, showWorkflow }: Readonly<{
   state: InvestigationMessageState;
   reconnecting: boolean;
   showWorkflow: boolean;
 }>) {
+  const reduceMotion = useReducedMotion();
   return (
-    <div className="chat-heading">
+    <motion.div
+      animate={{ opacity: 1, y: 0 }}
+      className="chat-heading"
+      initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+      transition={{ duration: 0.35 }}
+    >
       <p className="demo-label">Guided demo</p>
       <h1 id="conversation-title">Investigate a metric movement</h1>
       <p>For on-call engineers and service owners investigating a production KPI after an alert.</p>
@@ -170,7 +226,7 @@ function WorkspaceIntro({ state, reconnecting, showWorkflow }: Readonly<{
           </ol>
         </section>
       ) : null}
-    </div>
+    </motion.div>
   );
 }
 
@@ -254,40 +310,42 @@ function Composer({ initialQuestion, busy, onSubmit, sample, suggestedQuestion }
 
   return (
     <form className="composer" onSubmit={submit}>
-      <label htmlFor="incident-question">Ask about checkout</label>
-      <textarea
-        aria-describedby={`question-help${error ? " question-error" : ""}`}
-        aria-invalid={error !== null}
-        disabled={busy}
-        id="incident-question"
-        maxLength={500}
-        onChange={(event) => {
-          setDraft(event.target.value);
-          setError(null);
-        }}
-        required
-        rows={2}
-        value={draft}
-      />
-      <p className="composer-help" id="question-help">
-        Guided scope: the seeded checkout question above, followed by a mobile refinement.
-      </p>
-      {error ? <p className="composer-error" id="question-error" role="alert">{error}</p> : null}
-      {suggestedQuestion ? (
-        <div className="follow-up-action">
-          <span>Next supported step</span>
-          <button className="view-reset" disabled={busy} onClick={runSuggestion} type="button">
-            {suggestedQuestion}
-          </button>
-        </div>
-      ) : null}
-      <button className="primary-button" disabled={busy} type="submit">
-        {busy
-          ? "Investigating…"
-          : sample && draft.trim() === initialQuestion
-            ? "Run sample investigation"
-            : "Investigate"}
-      </button>
+      <div className="composer-shell">
+        <label htmlFor="incident-question">Ask about checkout</label>
+        <textarea
+          aria-describedby={`question-help${error ? " question-error" : ""}`}
+          aria-invalid={error !== null}
+          disabled={busy}
+          id="incident-question"
+          maxLength={500}
+          onChange={(event) => {
+            setDraft(event.target.value);
+            setError(null);
+          }}
+          required
+          rows={2}
+          value={draft}
+        />
+        <p className="composer-help" id="question-help">
+          Guided scope: the seeded checkout question above, followed by a mobile refinement.
+        </p>
+        {error ? <p className="composer-error" id="question-error" role="alert">{error}</p> : null}
+        {suggestedQuestion ? (
+          <div className="follow-up-action">
+            <span>Next supported step</span>
+            <button className="view-reset" disabled={busy} onClick={runSuggestion} type="button">
+              {suggestedQuestion}
+            </button>
+          </div>
+        ) : null}
+        <button className="primary-button" disabled={busy} type="submit">
+          {busy
+            ? "Investigating…"
+            : sample && draft.trim() === initialQuestion
+              ? "Run sample investigation"
+              : "Investigate"}
+        </button>
+      </div>
     </form>
   );
 }
@@ -411,6 +469,7 @@ function InvestigationChat({
 
   return (
     <div className="workspace">
+      <WorkspaceSidebar />
       <aside aria-labelledby="conversation-title" className="chat-rail">
         <p aria-atomic="true" aria-live="polite" className="sr-only" role="status">
           {statusAnnouncement(messageState, reconnecting)}
