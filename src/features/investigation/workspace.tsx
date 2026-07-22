@@ -36,11 +36,13 @@ import { ActiveIncidentEvidence } from "./incident-preview.tsx";
 
 type DeployLensMessage = InferChatUIMessage<typeof deploylensAgent>;
 
+const mobileFollowUp = "Show only mobile traffic";
+
 const storedSessionSchema = z
   .object({
     publicAccessToken: z.string().min(1),
     lastEventId: z.string().min(1).optional(),
-    isStreaming: z.boolean().optional(),
+    isStreaming: z.literal(true),
   })
   .strict();
 
@@ -69,7 +71,7 @@ function parseStoredResume(stored: string | null): StoredResume | undefined {
       session: {
         publicAccessToken: session.publicAccessToken,
         ...(session.lastEventId === undefined ? {} : { lastEventId: session.lastEventId }),
-        ...(session.isStreaming === undefined ? {} : { isStreaming: session.isStreaming }),
+        isStreaming: true,
       },
     };
   } catch {
@@ -118,6 +120,60 @@ function useStoredResume(chatId: string) {
   return useMemo(() => parseStoredResume(stored), [stored]);
 }
 
+function stateLabel(state: InvestigationMessageState, reconnecting: boolean) {
+  if (reconnecting && state.kind === "pending") return "Reconnecting";
+  if (state.kind === "initial") return "Example";
+  if (state.kind === "pending") return "Investigating";
+  if (state.kind === "valid") return "Validated";
+  if (state.kind === "unsupported") return "Scope limited";
+  return "Failed";
+}
+
+function statusAnnouncement(state: InvestigationMessageState, reconnecting: boolean) {
+  if (reconnecting && state.kind === "pending") return "Reconnecting to this investigation.";
+  if (state.kind === "initial") return "Example result. No live investigation has run yet.";
+  if (state.kind === "valid") return `Evidence ready. ${state.incident.finding.headline}`;
+  if (state.kind === "pending") {
+    const latest = state.progress.at(-1);
+    return latest
+      ? `Analysis progress. ${latest.label}: ${latest.status}.`
+      : "Investigation submitted.";
+  }
+  return state.message;
+}
+
+function WorkspaceIntro({ state, reconnecting, showWorkflow }: Readonly<{
+  state: InvestigationMessageState;
+  reconnecting: boolean;
+  showWorkflow: boolean;
+}>) {
+  return (
+    <div className="chat-heading">
+      <p className="demo-label">Guided demo</p>
+      <h1 id="conversation-title">Investigate a metric movement</h1>
+      <p>For on-call engineers and service owners investigating a production KPI after an alert.</p>
+      <dl className="context-list">
+        <div><dt>Workspace</dt><dd>Sample checkout incident</dd></div>
+        <div><dt>Service</dt><dd>Checkout</dd></div>
+        <div><dt>Metric</dt><dd>Conversion</dd></div>
+        <div><dt>Data</dt><dd>Seeded ClickHouse</dd></div>
+        <div><dt>Timezone</dt><dd>UTC</dd></div>
+        <div><dt>State</dt><dd>{stateLabel(state, reconnecting)}</dd></div>
+      </dl>
+      {showWorkflow ? (
+        <section aria-labelledby="workflow-title" className="workflow-overview">
+          <h2 id="workflow-title">How DeployLens works</h2>
+          <ol className="workflow-steps">
+            <li>Ask why checkout conversion moved.</li>
+            <li>Compare the baseline, funnel, deployments, and segments.</li>
+            <li>Verify and narrow the finding, then decide whether to roll back or escalate.</li>
+          </ol>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
 function Conversation({ messages, state, busy, onRetry }: Readonly<{
   messages: readonly DeployLensMessage[];
   state: InvestigationMessageState;
@@ -129,15 +185,9 @@ function Conversation({ messages, state, busy, onRetry }: Readonly<{
     : undefined;
 
   return (
-    <div className="conversation">
+    <div className={`conversation${messages.length === 0 && state.progress.length === 0 && !failure ? " conversation-empty" : ""}`}>
       <div aria-live="polite" aria-relevant="additions text" role="log">
         <ol className="message-log">
-          {messages.length === 0 ? (
-            <li className="message message-system">
-              <span>DeployLens</span>
-              <p>Ready to investigate the seeded checkout incident.</p>
-            </li>
-          ) : null}
           {messages.map((message) => message.parts.map((part, index) => part.type === "text" ? (
             <li className={`message message-${message.role === "user" ? "user" : "system"}`} key={`${message.id}-${index}`}>
               <span>{message.role === "user" ? "You" : "DeployLens"}</span>
@@ -147,7 +197,7 @@ function Conversation({ messages, state, busy, onRetry }: Readonly<{
         </ol>
       </div>
       {state.progress.length > 0 ? (
-        <div aria-live="polite" className="message message-system progress-message" role="status">
+        <div aria-label="Analysis progress" className="message message-system progress-message" role="region">
           <span>Analysis progress</span>
           <ul className="progress-list">
             {state.progress.map(({ label, status }) => (
@@ -163,7 +213,7 @@ function Conversation({ messages, state, busy, onRetry }: Readonly<{
         </div>
       ) : null}
       {failure ? (
-        <div aria-live="polite" className="message message-system" role="status">
+        <div className="message message-system">
           <p className="composer-error">{failure.message}</p>
           {failure.retryable ? (
             <button className="primary-button" disabled={busy} onClick={onRetry} type="button">
@@ -176,10 +226,12 @@ function Conversation({ messages, state, busy, onRetry }: Readonly<{
   );
 }
 
-function Composer({ initialQuestion, busy, onSubmit }: Readonly<{
+function Composer({ initialQuestion, busy, onSubmit, sample, suggestedQuestion }: Readonly<{
   initialQuestion: string;
   busy: boolean;
   onSubmit: (question: string) => string | undefined;
+  sample: boolean;
+  suggestedQuestion?: string;
 }>) {
   const [draft, setDraft] = useState(initialQuestion);
   const [error, setError] = useState<string | null>(null);
@@ -192,6 +244,12 @@ function Composer({ initialQuestion, busy, onSubmit }: Readonly<{
       return;
     }
     setError(onSubmit(question) ?? null);
+  }
+
+  function runSuggestion() {
+    if (!suggestedQuestion) return;
+    setDraft(suggestedQuestion);
+    setError(null);
   }
 
   return (
@@ -208,35 +266,56 @@ function Composer({ initialQuestion, busy, onSubmit }: Readonly<{
           setError(null);
         }}
         required
-        rows={3}
+        rows={2}
         value={draft}
       />
-      <p className="composer-help" id="question-help">Runs the seeded checkout investigation.</p>
+      <p className="composer-help" id="question-help">
+        Guided scope: the seeded checkout question above, followed by a mobile refinement.
+      </p>
       {error ? <p className="composer-error" id="question-error" role="alert">{error}</p> : null}
+      {suggestedQuestion ? (
+        <div className="follow-up-action">
+          <span>Next supported step</span>
+          <button className="view-reset" disabled={busy} onClick={runSuggestion} type="button">
+            {suggestedQuestion}
+          </button>
+        </div>
+      ) : null}
       <button className="primary-button" disabled={busy} type="submit">
-        {busy ? "Investigating…" : "Investigate"}
+        {busy
+          ? "Investigating…"
+          : sample && draft.trim() === initialQuestion
+            ? "Run sample investigation"
+            : "Investigate"}
       </button>
     </form>
   );
 }
 
-function EvidenceStatus({ state }: Readonly<{ state: InvestigationMessageState }>) {
+function EvidenceStatus({ reconnecting, state }: Readonly<{
+  reconnecting: boolean;
+  state: InvestigationMessageState;
+}>) {
   const failed = state.kind === "schema-invalid" || state.kind === "tool-error";
-  const title = state.kind === "unsupported"
-    ? "This question is outside the demo scope"
-    : failed
-      ? "No live incident result was produced"
-      : "Building the incident evidence";
+  const title = reconnecting && state.kind === "pending"
+    ? "Reconnecting to this investigation"
+    : state.kind === "unsupported"
+      ? "This question is outside the demo scope"
+      : failed
+        ? "No live incident result was produced"
+        : "Building the incident evidence";
 
   return (
-    <section aria-live="polite" className="evidence-pane evidence-status">
+    <section className="evidence-pane evidence-status">
       <p className="eyebrow">Live evidence</p>
       <h2>{title}</h2>
-      <p>{state.kind === "unsupported"
-        ? unsupportedQuestionMessage
-        : failed
-          ? "Retry to run the investigation again. Stale evidence has not been shown."
-          : "The card will appear only after the streamed tool output passes validation."}</p>
+      <p>{reconnecting && state.kind === "pending"
+        ? "The active Trigger.dev session is being restored. Evidence will appear only after validation."
+        : state.kind === "unsupported"
+          ? unsupportedQuestionMessage
+          : failed
+            ? "Retry to run the investigation again. Stale evidence has not been shown."
+            : "The card will appear only after the streamed tool output passes validation."}</p>
     </section>
   );
 }
@@ -275,6 +354,7 @@ function InvestigationChat({
       }
       if (session.isStreaming === false) {
         turnSnapshotSaved.current = false;
+        persistResume(chatId, null);
         return;
       }
       if (session.isStreaming && !turnSnapshotSaved.current && latestQuestion.current) {
@@ -298,6 +378,13 @@ function InvestigationChat({
       ? incident
       : undefined;
   const busy = status === "submitted" || status === "streaming";
+  const reconnecting = Boolean(restoredResume) &&
+    messageState.kind === "pending" &&
+    messageState.progress.length === 0;
+  const suggestedQuestion = messageState.kind === "valid" &&
+    classifyInvestigationQuestion(messageState.incident.question)?.device !== "mobile"
+    ? mobileFollowUp
+    : undefined;
 
   useEffect(() => {
     if (!busy) submissionLock.current = false;
@@ -325,23 +412,34 @@ function InvestigationChat({
   return (
     <div className="workspace">
       <aside aria-labelledby="conversation-title" className="chat-rail">
-        <div className="chat-heading">
-          <p className="eyebrow">Investigation</p>
-          <h1 id="conversation-title">Checkout conversion</h1>
-          <p>Ask one question. The evidence stays linked as you narrow the incident.</p>
-        </div>
-        <Conversation busy={busy} messages={messages} onRetry={retry} state={messageState} />
-        <Composer busy={busy} initialQuestion={incident.question} onSubmit={investigate} />
-      </aside>
-      {currentIncident ? (
-        <ActiveIncidentEvidence
-          incident={currentIncident}
-          key={`${currentIncident.incidentId}:${currentIncident.generatedAt}:${currentIncident.defaultViewId}`}
-          preview={messageState.kind === "initial"}
+        <p aria-atomic="true" aria-live="polite" className="sr-only" role="status">
+          {statusAnnouncement(messageState, reconnecting)}
+        </p>
+        <WorkspaceIntro
+          reconnecting={reconnecting}
+          showWorkflow={messageState.kind === "initial"}
+          state={messageState}
         />
-      ) : (
-        <EvidenceStatus state={messageState} />
-      )}
+        <Conversation busy={busy} messages={messages} onRetry={retry} state={messageState} />
+        <Composer
+          busy={busy}
+          initialQuestion={incident.question}
+          onSubmit={investigate}
+          sample={messageState.kind === "initial"}
+          {...(suggestedQuestion ? { suggestedQuestion } : {})}
+        />
+      </aside>
+      <div aria-busy={busy} className="evidence-workspace">
+        {currentIncident ? (
+          <ActiveIncidentEvidence
+            incident={currentIncident}
+            key={`${currentIncident.incidentId}:${currentIncident.generatedAt}:${currentIncident.defaultViewId}`}
+            preview={messageState.kind === "initial"}
+          />
+        ) : (
+          <EvidenceStatus reconnecting={reconnecting} state={messageState} />
+        )}
+      </div>
     </div>
   );
 }
