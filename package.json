@@ -26,13 +26,16 @@
     "test:e2e": "RUN_CREDENTIALED_E2E=1 node --env-file-if-exists=.env.local --test tests/credentialed-e2e.test.ts",
     "test:sql": "clickhouse local --queries-file db/schema.sql db/seed.sql db/smoke.sql",
     "typecheck": "next typegen && tsc --noEmit",
-    "verify": "npm run check && npm run test:browser"
+    "verify": "npm run check && npm run test:browser",
+    "setup:clickhouse": "bash scripts/setup-clickhouse.sh"
   },
   "dependencies": {
     "@ai-sdk/react": "3.0.233",
     "@clickhouse/client": "^1.23.1",
     "@trigger.dev/sdk": "4.5.5",
     "ai": "6.0.231",
+    "framer-motion": "^12.42.2",
+    "lucide-react": "^1.25.0",
     "next": "^16.2.10",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

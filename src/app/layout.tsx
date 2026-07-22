@@ -1,24 +1,23 @@
 import type { Metadata, Viewport } from "next";
-import { Familjen_Grotesk, Inter } from "next/font/google";
+import { Fraunces, Plus_Jakarta_Sans } from "next/font/google";
 import type { ReactNode } from "react";
 
 import "./globals.css";
 import "./landing.css";
 import "../features/investigation/incident-card.css";
 
-const displayFont = Familjen_Grotesk({
+const displayFont = Fraunces({
   display: "swap",
   subsets: ["latin"],
   variable: "--font-display",
-  weight: "variable",
+  weight: ["500", "600", "700"],
 });
 
-const uiFont = Inter({
-  axes: ["opsz"],
+const uiFont = Plus_Jakarta_Sans({
   display: "swap",
   subsets: ["latin"],
   variable: "--font-ui",
-  weight: "variable",
+  weight: ["400", "500", "600", "700", "800"],
 });
 
 export const metadata: Metadata = {
