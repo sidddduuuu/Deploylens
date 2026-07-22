@@ -157,7 +157,7 @@ function TimelineChart({ incident, view }: Readonly<{
                   <text x="0" y={top + 12}>{label}</text>
                   <line x1={chartLeft} x2={chartWidth - chartRight} y1={top + laneHeight} y2={top + laneHeight} />
                   <motion.polyline
-                    animate={reduceMotion ? undefined : { opacity: [0.35, 1] }}
+                    animate={reduceMotion ? { opacity: 1 } : { opacity: [0.35, 1] }}
                     points={points}
                     transition={{ delay: index * 0.06, duration: 0.55, ease: "easeOut" }}
                   />
