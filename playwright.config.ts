@@ -25,7 +25,7 @@ export default defineConfig({
       command: process.env.CI
         ? "npm run start -- --hostname 127.0.0.1 --port 3107"
         : "npm run dev -- --hostname 127.0.0.1 --port 3107",
-      reuseExistingServer: false,
+      reuseExistingServer: !process.env.CI,
       timeout: 120_000,
       url: localBaseUrl,
     },
